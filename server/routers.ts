@@ -9,7 +9,12 @@ import {
   getUserSessions, createResponse, updateResponse, getSessionResponses,
   getUserAnalytics, getTodayTarget, upsertPracticeTarget, getUserMilestones,
   createMilestone, updateUserProfile, getQuestionsCount,
+  getDueCards, getUpcomingCards, getOrCreateSrsCard, updateSrsCard, logSrsReview,
+  getSrsStats, getSrsCardById, autoCreateSrsCardsFromSession,
 } from "./db";
+import {
+  computeSm2, scoreToRating, getIntervalPreviews, getRatingLabel, type SrsRating,
+} from "./sm2";
 import {
   scoreWritingTask, scoreSpeakingTask, scoreObjectiveTask,
   generateDiagnosticFeedback, normalizeToPTE,
@@ -500,6 +505,161 @@ const profileRouter = router({
     }),
 });
 
+// ─── SRS Router ─────────────────────────────────────────────────────────────
+const srsRouter = router({
+  /**
+   * Get all cards due for review today, with question content.
+   */
+  getDueCards: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const rows = await getDueCards(ctx.user.id, input.limit);
+      return rows.map(({ card, question }) => ({
+        card,
+        question,
+        intervalPreviews: getIntervalPreviews({
+          easeFactor: card.easeFactor,
+          interval: card.interval,
+          repetitions: card.repetitions,
+          lapses: card.lapses,
+          state: card.state,
+        }),
+      }));
+    }),
+
+  /**
+   * Get upcoming cards (not yet due) for planning.
+   */
+  getUpcomingCards: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(20).default(10) }))
+    .query(async ({ ctx, input }) => {
+      return getUpcomingCards(ctx.user.id, input.limit);
+    }),
+
+  /**
+   * Get SRS statistics for the current user.
+   */
+  getStats: protectedProcedure.query(async ({ ctx }) => {
+    return getSrsStats(ctx.user.id);
+  }),
+
+  /**
+   * Record a review for a card and update its SM-2 schedule.
+   * rating: 1=Again, 2=Hard, 3=Good, 4=Easy, 5=Perfect
+   */
+  recordReview: protectedProcedure
+    .input(z.object({
+      cardId: z.number(),
+      rating: z.number().min(1).max(5),
+      responseText: z.string().optional(),
+      normalizedScore: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const card = await getSrsCardById(input.cardId);
+      if (!card || card.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
+      }
+
+      const rating = input.rating as SrsRating;
+      const sm2Result = computeSm2({
+        easeFactor: card.easeFactor,
+        interval: card.interval,
+        repetitions: card.repetitions,
+        lapses: card.lapses,
+        state: card.state,
+        rating,
+      });
+
+      const isCorrect = rating >= 3;
+
+      // Update the card
+      await updateSrsCard(card.id, {
+        easeFactor: sm2Result.easeFactor,
+        interval: sm2Result.interval,
+        repetitions: sm2Result.repetitions,
+        lapses: sm2Result.lapses,
+        state: sm2Result.state,
+        dueDate: sm2Result.dueDate,
+        isCorrect,
+      });
+
+      // Log the review
+      await logSrsReview({
+        cardId: card.id,
+        userId: ctx.user.id,
+        questionId: card.questionId,
+        rating,
+        prevEaseFactor: card.easeFactor,
+        prevInterval: card.interval,
+        prevRepetitions: card.repetitions,
+        newEaseFactor: sm2Result.easeFactor,
+        newInterval: sm2Result.interval,
+        newRepetitions: sm2Result.repetitions,
+        responseText: input.responseText,
+        normalizedScore: input.normalizedScore,
+      });
+
+      return {
+        success: true,
+        nextInterval: sm2Result.interval,
+        nextDueDate: sm2Result.dueDate,
+        ratingLabel: getRatingLabel(rating),
+        newState: sm2Result.state,
+      };
+    }),
+
+  /**
+   * Manually add a question to the SRS deck.
+   */
+  addCard: protectedProcedure
+    .input(z.object({
+      questionId: z.number(),
+      sourceResponseId: z.number().optional(),
+      lastScore: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const card = await getOrCreateSrsCard(
+        ctx.user.id,
+        input.questionId,
+        input.sourceResponseId,
+        input.lastScore
+      );
+      return { success: true, card };
+    }),
+
+  /**
+   * Auto-create SRS cards from a completed session (called after session submit).
+   */
+  autoCreateFromSession: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const count = await autoCreateSrsCardsFromSession(ctx.user.id, input.sessionId);
+      return { success: true, cardsCreated: count };
+    }),
+
+  /**
+   * Reset a card back to "new" state (useful if user wants to relearn from scratch).
+   */
+  resetCard: protectedProcedure
+    .input(z.object({ cardId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const card = await getSrsCardById(input.cardId);
+      if (!card || card.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
+      }
+      await updateSrsCard(card.id, {
+        easeFactor: 2.5,
+        interval: 1,
+        repetitions: 0,
+        lapses: card.lapses,
+        state: "new",
+        dueDate: new Date(),
+        isCorrect: false,
+      });
+      return { success: true };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -516,6 +676,7 @@ export const appRouter = router({
   analytics: analyticsRouter,
   profile: profileRouter,
   aiCoach: aiCoachRouter,
+  srs: srsRouter,
 });
 
 export type AppRouter = typeof appRouter;

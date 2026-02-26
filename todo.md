@@ -94,3 +94,20 @@
 - [x] Added AI Coaching Plan to sidebar navigation
 - [x] Question bank expanded to 127+ questions (expand-questions.mjs)
 - [x] Overview webpage enhanced: AI Feedback preview, 4-week roadmap, skill gap chart, daily schedule
+
+## Phase 3 — Spaced Repetition System (COMPLETED)
+- [x] Add spaced_repetition_cards table to schema (SM-2 fields: easeFactor, interval, repetitions, dueDate, lastReviewedAt, totalReviews, lapses)
+- [x] Add srs_review_logs table for full review history
+- [x] Run migration SQL
+- [x] Implement SM-2 algorithm in server/sm2.ts
+- [x] Add SRS tRPC router (getDueCards, recordReview, getStats, resetCard, addCard, autoCreateFromSession, resetCard)
+- [x] Auto-create SRS cards when a response scores below threshold (shouldCreateCard, autoCreateSrsCardsFromSession)
+- [x] Build RevisionMode page with SRS deck UI (card flip, difficulty rating 1-5, keyboard shortcuts)
+- [x] Build SRS stats panel (due today, reviewed today, total cards, retention rate)
+- [x] Build 14-day review heatmap with colour-coded activity
+- [x] Build deck composition state distribution chart
+- [x] Build upcoming cards panel
+- [x] Build SM-2 explanation and rating guide sidebar
+- [x] Show SRS due count badge in sidebar navigation (auto-refreshes every 60s)
+- [x] Write SM-2 algorithm unit tests (46 tests covering all SM-2 edge cases)
+- [x] All 70 tests passing (46 SM-2 + 23 scoring + 1 auth)

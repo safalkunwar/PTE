@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   LayoutDashboard, BookOpen, Mic, PenLine, Headphones, Eye,
   BarChart3, Target, Settings, LogOut, ChevronRight, Trophy,
-  GraduationCap, Menu, X, Brain
+  GraduationCap, Menu, X, Brain, RotateCcw
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -16,6 +16,7 @@ const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/practice", label: "Practice", icon: BookOpen },
   { path: "/mock-test", label: "Mock Test", icon: GraduationCap },
+  { path: "/revision", label: "Revision Mode", icon: RotateCcw, badge: "srs" },
   { path: "/coaching-plan", label: "AI Coaching Plan", icon: Brain },
   { path: "/learning-modes", label: "Learning Modes", icon: Target },
   { path: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -32,6 +33,37 @@ const sectionItems = [
 interface PTELayoutProps {
   children: React.ReactNode;
   title?: string;
+}
+
+function SrsNavItem() {
+  const [location] = useLocation();
+  const { data: stats } = trpc.srs.getStats.useQuery(undefined, {
+    refetchInterval: 60000, // refresh every minute
+  });
+  const dueCount = stats?.dueNow ?? 0;
+  const isActive = location === "/revision";
+  return (
+    <Link href="/revision">
+      <button
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+          isActive
+            ? "bg-sidebar-primary text-sidebar-primary-foreground"
+            : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        }`}
+      >
+        <RotateCcw className="w-4 h-4 shrink-0" />
+        Revision Mode
+        <div className="ml-auto flex items-center gap-1">
+          {dueCount > 0 && (
+            <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+              {dueCount > 99 ? "99+" : dueCount}
+            </span>
+          )}
+          {isActive && <ChevronRight className="w-3 h-3" />}
+        </div>
+      </button>
+    </Link>
+  );
 }
 
 export default function PTELayout({ children, title }: PTELayoutProps) {
@@ -106,7 +138,8 @@ export default function PTELayout({ children, title }: PTELayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ path, label, icon: Icon }) => {
+          <SrsNavItem />
+          {navItems.filter(i => i.badge !== "srs").map(({ path, label, icon: Icon }) => {
             const isActive = location === path || (path !== "/dashboard" && location.startsWith(path));
             return (
               <Link key={path} href={path}>

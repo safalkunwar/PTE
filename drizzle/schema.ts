@@ -131,6 +131,58 @@ export const practiceTargets = mysqlTable("practiceTargets", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+// Spaced Repetition Cards (SM-2 algorithm)
+export const srsCards = mysqlTable("srs_cards", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  // SM-2 core fields
+  easeFactor: float("easeFactor").default(2.5).notNull(), // starts at 2.5, min 1.3
+  interval: int("interval").default(1).notNull(), // days until next review
+  repetitions: int("repetitions").default(0).notNull(), // consecutive correct reviews
+  lapses: int("lapses").default(0).notNull(), // times forgotten (reset to 0)
+  // Scheduling
+  dueDate: timestamp("dueDate").notNull(), // next review date
+  lastReviewedAt: timestamp("lastReviewedAt"),
+  // Stats
+  totalReviews: int("totalReviews").default(0).notNull(),
+  correctReviews: int("correctReviews").default(0).notNull(),
+  // Card state
+  state: mysqlEnum("state", ["new", "learning", "review", "relearning"]).default("new").notNull(),
+  // Source of the card (from a failed response)
+  sourceResponseId: int("sourceResponseId").references(() => userResponses.id),
+  lastScore: float("lastScore"), // last normalized score that triggered this card
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SrsCard = typeof srsCards.$inferSelect;
+export type InsertSrsCard = typeof srsCards.$inferInsert;
+
+// SRS Review Logs — full history of every review
+export const srsReviewLogs = mysqlTable("srs_review_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  cardId: int("cardId").notNull().references(() => srsCards.id),
+  userId: int("userId").notNull().references(() => users.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  // What the user rated (1=Again, 2=Hard, 3=Good, 4=Easy, 5=Perfect)
+  rating: int("rating").notNull(),
+  // SM-2 values BEFORE this review
+  prevEaseFactor: float("prevEaseFactor").notNull(),
+  prevInterval: int("prevInterval").notNull(),
+  prevRepetitions: int("prevRepetitions").notNull(),
+  // SM-2 values AFTER this review
+  newEaseFactor: float("newEaseFactor").notNull(),
+  newInterval: int("newInterval").notNull(),
+  newRepetitions: int("newRepetitions").notNull(),
+  // Response data
+  responseText: text("responseText"),
+  normalizedScore: float("normalizedScore"),
+  reviewedAt: timestamp("reviewedAt").defaultNow().notNull(),
+});
+
+export type SrsReviewLog = typeof srsReviewLogs.$inferSelect;
+
 // Score milestones and notifications
 export const milestones = mysqlTable("milestones", {
   id: int("id").autoincrement().primaryKey(),

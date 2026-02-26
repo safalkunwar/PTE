@@ -14,6 +14,7 @@ import Analytics from "./pages/Analytics";
 import LearningModes from "./pages/LearningModes";
 import Profile from "./pages/Profile";
 import CoachingPlan from "./pages/CoachingPlan";
+import RevisionMode from "./pages/RevisionMode";
 
 function Router() {
   return (
@@ -29,6 +30,7 @@ function Router() {
       <Route path="/learning-modes" component={LearningModes} />
       <Route path="/profile" component={Profile} />
       <Route path="/coaching-plan" component={CoachingPlan} />
+      <Route path="/revision" component={RevisionMode} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

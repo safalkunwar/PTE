@@ -1,4 +1,4 @@
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, gt, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -8,11 +8,16 @@ import {
   userResponses,
   practiceTargets,
   milestones,
+  srsCards,
+  srsReviewLogs,
   type Question,
   type PracticeSession,
   type UserResponse,
+  type SrsCard,
+  type InsertSrsCard,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { shouldCreateCard } from "./sm2";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -236,4 +241,242 @@ export async function getQuestionsCount() {
   if (!db) return 0;
   const result = await db.select({ count: sql<number>`count(*)` }).from(questions);
   return result[0]?.count ?? 0;
+}
+
+// ─── Spaced Repetition (SRS) helpers ────────────────────────────────────────
+
+/**
+ * Get or create an SRS card for a (userId, questionId) pair.
+ * Returns the existing card if one already exists.
+ */
+export async function getOrCreateSrsCard(
+  userId: number,
+  questionId: number,
+  sourceResponseId?: number,
+  lastScore?: number
+): Promise<SrsCard | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Check for existing card
+  const existing = await db
+    .select()
+    .from(srsCards)
+    .where(and(eq(srsCards.userId, userId), eq(srsCards.questionId, questionId)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Update lastScore if a new lower score comes in
+    if (lastScore !== undefined && existing[0] && (existing[0].lastScore === null || lastScore < (existing[0].lastScore ?? 100))) {
+      await db
+        .update(srsCards)
+        .set({ lastScore, sourceResponseId: sourceResponseId ?? existing[0].sourceResponseId })
+        .where(eq(srsCards.id, existing[0].id));
+    }
+    return existing[0] ?? null;
+  }
+
+  // Create new card — due immediately (today)
+  const dueDate = new Date();
+  const values: InsertSrsCard = {
+    userId,
+    questionId,
+    easeFactor: 2.5,
+    interval: 1,
+    repetitions: 0,
+    lapses: 0,
+    dueDate,
+    totalReviews: 0,
+    correctReviews: 0,
+    state: "new",
+    sourceResponseId,
+    lastScore,
+  };
+
+  await db.insert(srsCards).values(values);
+
+  const created = await db
+    .select()
+    .from(srsCards)
+    .where(and(eq(srsCards.userId, userId), eq(srsCards.questionId, questionId)))
+    .limit(1);
+
+  return created[0] ?? null;
+}
+
+/**
+ * Get all SRS cards due for review for a user.
+ * Sorted by urgency: overdue cards first, then by lapses.
+ */
+export async function getDueCards(userId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const now = new Date();
+  const rows = await db
+    .select({
+      card: srsCards,
+      question: questions,
+    })
+    .from(srsCards)
+    .innerJoin(questions, eq(srsCards.questionId, questions.id))
+    .where(and(eq(srsCards.userId, userId), lte(srsCards.dueDate, now)))
+    .orderBy(asc(srsCards.dueDate), desc(srsCards.lapses))
+    .limit(limit);
+
+  return rows;
+}
+
+/**
+ * Get upcoming SRS cards (not yet due) for a user.
+ */
+export async function getUpcomingCards(userId: number, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const now = new Date();
+  return db
+    .select({ card: srsCards, question: questions })
+    .from(srsCards)
+    .innerJoin(questions, eq(srsCards.questionId, questions.id))
+    .where(and(eq(srsCards.userId, userId), gt(srsCards.dueDate, now)))
+    .orderBy(asc(srsCards.dueDate))
+    .limit(limit);
+}
+
+/**
+ * Update an SRS card after a review.
+ */
+export async function updateSrsCard(
+  cardId: number,
+  updates: {
+    easeFactor: number;
+    interval: number;
+    repetitions: number;
+    lapses: number;
+    state: "new" | "learning" | "review" | "relearning";
+    dueDate: Date;
+    isCorrect: boolean;
+  }
+) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(srsCards)
+    .set({
+      easeFactor: updates.easeFactor,
+      interval: updates.interval,
+      repetitions: updates.repetitions,
+      lapses: updates.lapses,
+      state: updates.state,
+      dueDate: updates.dueDate,
+      lastReviewedAt: new Date(),
+      totalReviews: sql`totalReviews + 1`,
+      correctReviews: updates.isCorrect ? sql`correctReviews + 1` : sql`correctReviews`,
+    })
+    .where(eq(srsCards.id, cardId));
+}
+
+/**
+ * Log a review to the srs_review_logs table.
+ */
+export async function logSrsReview(data: typeof srsReviewLogs.$inferInsert) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(srsReviewLogs).values(data);
+}
+
+/**
+ * Get SRS statistics for a user.
+ */
+export async function getSrsStats(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const now = new Date();
+
+  const [totalCards, dueCards, reviewedToday, allCards] = await Promise.all([
+    // Total cards
+    db.select({ count: sql<number>`count(*)` }).from(srsCards).where(eq(srsCards.userId, userId)),
+    // Due now
+    db.select({ count: sql<number>`count(*)` }).from(srsCards).where(and(eq(srsCards.userId, userId), lte(srsCards.dueDate, now))),
+    // Reviewed today
+    db.select({ count: sql<number>`count(*)` }).from(srsReviewLogs).where(
+      and(
+        eq(srsReviewLogs.userId, userId),
+        gte(srsReviewLogs.reviewedAt, new Date(now.getFullYear(), now.getMonth(), now.getDate()))
+      )
+    ),
+    // All cards for retention calc
+    db.select({ totalReviews: srsCards.totalReviews, correctReviews: srsCards.correctReviews, state: srsCards.state, lapses: srsCards.lapses })
+      .from(srsCards).where(eq(srsCards.userId, userId)),
+  ]);
+
+  const totalReviews = allCards.reduce((s, c) => s + (c.totalReviews ?? 0), 0);
+  const correctReviews = allCards.reduce((s, c) => s + (c.correctReviews ?? 0), 0);
+  const retentionRate = totalReviews > 0 ? Math.round((correctReviews / totalReviews) * 100) : 0;
+
+  const byState = allCards.reduce((acc, c) => {
+    acc[c.state] = (acc[c.state] ?? 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Review history for the last 14 days (for heatmap)
+  const fourteenDaysAgo = new Date(now);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const recentLogs = await db
+    .select({ reviewedAt: srsReviewLogs.reviewedAt, rating: srsReviewLogs.rating })
+    .from(srsReviewLogs)
+    .where(and(eq(srsReviewLogs.userId, userId), gte(srsReviewLogs.reviewedAt, fourteenDaysAgo)))
+    .orderBy(asc(srsReviewLogs.reviewedAt));
+
+  return {
+    totalCards: totalCards[0]?.count ?? 0,
+    dueNow: dueCards[0]?.count ?? 0,
+    reviewedToday: reviewedToday[0]?.count ?? 0,
+    retentionRate,
+    byState,
+    recentLogs,
+  };
+}
+
+/**
+ * Get a single SRS card by ID.
+ */
+export async function getSrsCardById(cardId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(srsCards).where(eq(srsCards.id, cardId)).limit(1);
+  return result[0] ?? null;
+}
+
+/**
+ * Auto-create SRS cards from a completed practice session's responses.
+ * Called after a session is submitted.
+ */
+export async function autoCreateSrsCardsFromSession(userId: number, sessionId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  // Get all responses from this session that scored below threshold
+  const responses = await db
+    .select()
+    .from(userResponses)
+    .where(and(eq(userResponses.sessionId, sessionId), eq(userResponses.userId, userId)));
+
+  let created = 0;
+  for (const response of responses) {
+    const score = response.normalizedScore ?? 0;
+    if (shouldCreateCard(score)) {
+      const card = await getOrCreateSrsCard(
+        userId,
+        response.questionId,
+        response.id,
+        score
+      );
+      if (card) created++;
+    }
+  }
+  return created;
 }
