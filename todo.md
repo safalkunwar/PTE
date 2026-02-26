@@ -128,3 +128,15 @@
 - [x] Server returns Whisper transcription in submit response for client-side word alignment
 - [x] getResponseById helper added to db.ts
 - [x] All 70 tests still passing, 0 TypeScript errors
+
+## Phase 5 — Speaking UX Enhancements (COMPLETED)
+- [x] Skip preparation time button (visible during prep countdown, immediately starts recording)
+- [x] Real-time voice-reactive waveform using Web Audio API AnalyserNode (bar chart animates with microphone amplitude)
+- [x] Waveform shows flat/idle state during prep, animates during recording, freezes on stop
+- [x] Model audio playback using browser TTS (speechSynthesis) for all speaking tasks
+- [x] "Hear Model Answer" button with play/pause/stop controls and speed adjustment (Slow/Normal/Fast)
+- [x] Visible images for Describe Image tasks (imageUrl from question data)
+- [x] Fallback placeholder for Describe Image when no imageUrl is set (animated bar chart placeholder)
+- [x] Task image panel with expand/collapse toggle
+- [x] Describe Image questions updated with Wikimedia Commons chart/graph images
+- [x] 0 TypeScript errors, 70/70 tests passing

@@ -463,21 +463,10 @@ export default function PracticeSession() {
             <CardTitle className="text-base text-muted-foreground font-normal">{question.prompt}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Content display */}
-            {question.content && !["reorder_paragraphs", "fill_blanks_rw"].includes(question.taskType) && (
+            {/* Content display — skip describe_image (handled inside SpeakingTask) */}
+            {question.content && !["-reorder_paragraphs", "fill_blanks_rw", "describe_image"].includes(question.taskType) && (
               <div className="bg-muted/50 rounded-xl p-4 border border-border">
-                {question.taskType === "describe_image" ? (
-                  <div className="text-center">
-                    <div className="bg-gradient-to-br from-primary/10 to-accent/10 rounded-lg p-8 mb-3">
-                      <p className="text-sm text-muted-foreground italic">
-                        [Image: {question.content as string}]
-                      </p>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Describe what you see in the image above</p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-foreground leading-relaxed">{question.content as string}</p>
-                )}
+                <p className="text-sm text-foreground leading-relaxed">{question.content as string}</p>
               </div>
             )}
 
@@ -520,6 +509,7 @@ export default function PracticeSession() {
                 <SpeakingTask
                   taskType={question.taskType}
                   originalText={question.content as string | undefined}
+                  imageUrl={(question as { imageUrl?: string }).imageUrl}
                   onRecordingComplete={(blob) => {
                     setAudioBlob(blob);
                     setRecordingDuration((Date.now() - recordingStartRef.current) / 1000);
