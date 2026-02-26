@@ -32,7 +32,7 @@ const questionsRouter = router({
       section: z.enum(["speaking", "writing", "reading", "listening"]).optional(),
       taskType: z.string().optional(),
       difficulty: z.enum(["easy", "medium", "hard"]).optional(),
-      limit: z.number().min(1).max(50).optional(),
+      limit: z.number().min(1).max(200).optional(),
     }))
     .query(async ({ input }) => {
       return getQuestions(input);

@@ -234,3 +234,9 @@
 - [x] Rebuilt Listening AI engine with Levenshtein error classification (spelling/hearing/missing), phonetic confusion analysis, deterministic SST trait overrides
 - [x] Fixed test isolation: vi.clearAllMocks() → vi.resetAllMocks() in all beforeEach blocks
 - [x] All 84 tests passing, 0 TypeScript errors
+
+## Phase 11 — Bug Fixes (Practice Page Errors) (COMPLETED)
+- [x] Fix limit validation: increased max from 50 to 200 in questions.list procedure
+- [x] Fix analytics.todayTarget: getTodayTarget now returns null instead of undefined
+- [x] Verified getUserAnalytics and getUserMilestones already return null/[] (safe)
+- [x] All 84 tests passing, 0 TypeScript errors

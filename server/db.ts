@@ -201,7 +201,7 @@ export async function getUserAnalytics(userId: number) {
 // Practice Targets
 export async function getTodayTarget(userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -214,7 +214,7 @@ export async function getTodayTarget(userId: number) {
       gte(practiceTargets.targetDate, today)
     ))
     .limit(1);
-  return result[0];
+  return result[0] ?? null;
 }
 
 export async function upsertPracticeTarget(data: typeof practiceTargets.$inferInsert) {
