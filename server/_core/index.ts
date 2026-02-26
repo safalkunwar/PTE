@@ -35,6 +35,22 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  // Audio upload endpoint for speaking tasks
+  app.post("/api/upload-audio", express.raw({ type: "audio/*", limit: "20mb" }), async (req, res) => {
+    try {
+      const { storagePut } = await import("../storage");
+      const nanoid = (await import("nanoid")).nanoid;
+      const key = `audio/${nanoid()}.webm`;
+      const buffer = req.body as Buffer;
+      const { url } = await storagePut(key, buffer, "audio/webm");
+      res.json({ url, key });
+    } catch (err) {
+      console.error("Audio upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

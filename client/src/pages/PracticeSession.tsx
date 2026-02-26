@@ -1,0 +1,674 @@
+import PTELayout from "@/components/PTELayout";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { useParams } from "wouter";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "sonner";
+import {
+  Mic, MicOff, Square, Play, Clock, CheckCircle, AlertCircle,
+  ChevronRight, Volume2, Info, Loader2, ArrowRight, RotateCcw
+} from "lucide-react";
+
+
+interface TaskResult {
+  responseId: number;
+  normalizedScore?: number;
+  feedback?: string;
+  strengths?: string[];
+  improvements?: string[];
+  pronunciationFeedback?: string;
+  fluencyFeedback?: string;
+  grammarErrors?: string[];
+  isCorrect?: boolean;
+}
+
+// Timer component
+function CountdownTimer({ seconds, onExpire, urgent = false }: { seconds: number; onExpire: () => void; urgent?: boolean }) {
+  const [remaining, setRemaining] = useState(seconds);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  useEffect(() => {
+    setRemaining(seconds);
+  }, [seconds]);
+
+  useEffect(() => {
+    if (remaining <= 0) {
+      onExpire();
+      return;
+    }
+    intervalRef.current = setInterval(() => {
+      setRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(intervalRef.current);
+          onExpire();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(intervalRef.current);
+  }, []);
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const isUrgent = remaining <= 30 && urgent;
+
+  return (
+    <div className={`flex items-center gap-1.5 font-mono text-sm font-semibold ${isUrgent ? "text-red-500 animate-pulse" : "text-foreground"}`}>
+      <Clock className="w-4 h-4" />
+      {mins > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : `${secs}s`}
+    </div>
+  );
+}
+
+// Audio recorder component
+function AudioRecorder({ onRecordingComplete, preparationTime = 0 }: {
+  onRecordingComplete: (audioBlob: Blob) => void;
+  preparationTime?: number;
+}) {
+  const [phase, setPhase] = useState<"preparing" | "recording" | "done">(preparationTime > 0 ? "preparing" : "recording");
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [prepTime, setPrepTime] = useState(preparationTime);
+
+  useEffect(() => {
+    if (phase === "preparing" && preparationTime > 0) {
+      const timer = setInterval(() => {
+        setPrepTime(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setPhase("recording");
+            startRecording();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+    if (phase === "recording" && !isRecording) {
+      startRecording();
+    }
+  }, [phase]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        stream.getTracks().forEach(t => t.stop());
+        setPhase("done");
+        onRecordingComplete(blob);
+      };
+
+      mediaRecorder.start(100);
+      setIsRecording(true);
+    } catch (err) {
+      toast.error("Microphone access denied. Please allow microphone access.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  if (phase === "preparing") {
+    return (
+      <div className="flex flex-col items-center gap-4 py-6">
+        <div className="w-16 h-16 rounded-full bg-yellow-100 border-4 border-yellow-400 flex items-center justify-center">
+          <span className="text-2xl font-bold text-yellow-600">{prepTime}</span>
+        </div>
+        <p className="text-sm text-muted-foreground">Preparation time — recording starts automatically</p>
+      </div>
+    );
+  }
+
+  if (phase === "recording") {
+    return (
+      <div className="flex flex-col items-center gap-4 py-6">
+        <div className="w-16 h-16 rounded-full bg-red-100 border-4 border-red-500 flex items-center justify-center recording-pulse">
+          <Mic className="w-7 h-7 text-red-500" />
+        </div>
+        <div className="flex gap-1 items-end h-6">
+          {[1,2,3,4,5].map(i => (
+            <div key={i} className="waveform-bar w-1.5 bg-red-400 rounded-full" style={{ animationDelay: `${i * 0.1}s` }} />
+          ))}
+        </div>
+        <p className="text-sm font-medium text-red-600">Recording... Speak clearly</p>
+        <Button variant="outline" size="sm" onClick={stopRecording} className="border-red-300 text-red-600">
+          <Square className="w-3 h-3 mr-1.5 fill-current" />
+          Stop Recording
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <div className="w-16 h-16 rounded-full bg-green-100 border-4 border-green-500 flex items-center justify-center">
+        <CheckCircle className="w-7 h-7 text-green-500" />
+      </div>
+      <p className="text-sm text-green-600 font-medium">Recording complete — processing...</p>
+    </div>
+  );
+}
+
+// Score display component
+function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: string }) {
+  const isSpeaking = ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question"].includes(taskType);
+  const isObjective = ["multiple_choice_single", "multiple_choice_multiple", "reorder_paragraphs",
+    "fill_blanks_reading", "fill_blanks_rw", "highlight_correct_summary", "select_missing_word",
+    "highlight_incorrect_words", "write_from_dictation"].includes(taskType);
+
+  return (
+    <div className="space-y-4">
+      {/* Score circle */}
+      <div className="text-center py-4">
+        {isObjective ? (
+          <div className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-lg font-bold ${
+            result.isCorrect ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+          }`}>
+            {result.isCorrect ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            {result.isCorrect ? "Correct!" : "Incorrect"}
+          </div>
+        ) : (
+          <div>
+            <div className="text-5xl font-extrabold text-foreground mb-1">
+              {result.normalizedScore ?? "—"}
+            </div>
+            <div className="text-sm text-muted-foreground">Score (10–90 scale)</div>
+          </div>
+        )}
+      </div>
+
+      {/* Feedback */}
+      {result.feedback && (
+        <div className="bg-muted/50 rounded-xl p-4">
+          <p className="text-sm text-foreground leading-relaxed">{result.feedback}</p>
+        </div>
+      )}
+
+      {/* Strengths & Improvements */}
+      <div className="grid sm:grid-cols-2 gap-4">
+        {result.strengths && result.strengths.length > 0 && (
+          <div>
+            <h4 className="text-sm font-semibold text-green-700 mb-2 flex items-center gap-1.5">
+              <CheckCircle className="w-3.5 h-3.5" />
+              Strengths
+            </h4>
+            <ul className="space-y-1">
+              {result.strengths.map((s, i) => (
+                <li key={i} className="text-xs text-foreground bg-green-50 border border-green-100 rounded-lg px-3 py-1.5">{s}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {result.improvements && result.improvements.length > 0 && (
+          <div>
+            <h4 className="text-sm font-semibold text-orange-700 mb-2 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Areas to Improve
+            </h4>
+            <ul className="space-y-1">
+              {result.improvements.map((s, i) => (
+                <li key={i} className="text-xs text-foreground bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5">{s}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Speaking-specific feedback */}
+      {isSpeaking && (result.pronunciationFeedback || result.fluencyFeedback) && (
+        <div className="space-y-2">
+          {result.pronunciationFeedback && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-blue-700 mb-1">Pronunciation</p>
+              <p className="text-xs text-blue-600">{result.pronunciationFeedback}</p>
+            </div>
+          )}
+          {result.fluencyFeedback && (
+            <div className="bg-purple-50 border border-purple-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-purple-700 mb-1">Oral Fluency</p>
+              <p className="text-xs text-purple-600">{result.fluencyFeedback}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Grammar errors */}
+      {result.grammarErrors && result.grammarErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-100 rounded-lg p-3">
+          <p className="text-xs font-semibold text-red-700 mb-2">Grammar Issues</p>
+          <ul className="space-y-1">
+            {result.grammarErrors.map((e, i) => (
+              <li key={i} className="text-xs text-red-600">• {e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function PracticeSession() {
+  const params = useParams<{ sessionId: string }>();
+  const sessionId = parseInt(params.sessionId);
+
+
+  // Parse URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const questionId = parseInt(urlParams.get("questionId") || "0");
+  const mode = (urlParams.get("mode") || "exam") as "beginner" | "exam" | "diagnostic" | "revision";
+
+  const { data: question, isLoading: questionLoading } = trpc.questions.getById.useQuery(
+    { id: questionId },
+    { enabled: !!questionId }
+  );
+
+  const submitResponse = trpc.responses.submit.useMutation();
+  const completeSession = trpc.sessions.complete.useMutation();
+
+  const [textResponse, setTextResponse] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [result, setResult] = useState<TaskResult | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [startTime] = useState(Date.now());
+  const [timedOut, setTimedOut] = useState(false);
+  const [reorderItems, setReorderItems] = useState<Array<{ id: string; text: string }>>([]);
+  const [arrangedItems, setArrangedItems] = useState<Array<{ id: string; text: string }>>([]);
+
+  // Initialize reorder items
+  useEffect(() => {
+    if (question?.taskType === "reorder_paragraphs" && question.content) {
+      try {
+        const items = JSON.parse(question.content as string);
+        const shuffled = [...items].sort(() => Math.random() - 0.5);
+        setReorderItems(shuffled);
+      } catch {}
+    }
+  }, [question]);
+
+  const isSpeakingTask = question && ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question"].includes(question.taskType);
+  const isWritingTask = question && ["summarize_written_text", "write_essay"].includes(question.taskType);
+  const isObjectiveTask = question && !isSpeakingTask && !isWritingTask;
+
+  const handleSubmit = async () => {
+    if (!question) return;
+    setIsSubmitting(true);
+
+    try {
+      let audioUrl: string | undefined;
+
+      // Upload audio if speaking task
+      if (isSpeakingTask && audioBlob) {
+        try {
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          const response = await fetch("/api/upload-audio", {
+            method: "POST",
+            headers: { "Content-Type": "audio/webm" },
+            body: uint8Array,
+          });
+          if (response.ok) {
+            const data = await response.json();
+            audioUrl = data.url;
+          }
+        } catch (e) {
+          console.error("Audio upload failed:", e);
+        }
+      }
+
+      const timeTaken = Math.floor((Date.now() - startTime) / 1000);
+      const response = await submitResponse.mutateAsync({
+        sessionId,
+        questionId: question.id,
+        responseText: textResponse || undefined,
+        audioUrl,
+        selectedOptions: selectedOptions.length > 0 ? selectedOptions : undefined,
+        timeTaken,
+      });
+
+      setResult(response as TaskResult);
+
+      // Complete session
+      await completeSession.mutateAsync({ id: sessionId });
+    } catch (err) {
+      toast.error("Failed to submit response. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleTimeUp = useCallback(() => {
+    setTimedOut(true);
+  }, []);
+
+  const handleOptionToggle = (optionId: string, isSingle: boolean) => {
+    if (isSingle) {
+      setSelectedOptions([optionId]);
+    } else {
+      setSelectedOptions(prev =>
+        prev.includes(optionId) ? prev.filter(o => o !== optionId) : [...prev, optionId]
+      );
+    }
+  };
+
+  const moveToArranged = (item: { id: string; text: string }) => {
+    setReorderItems(prev => prev.filter(i => i.id !== item.id));
+    setArrangedItems(prev => [...prev, item]);
+    setSelectedOptions(prev => [...prev, item.id]);
+  };
+
+  const moveBack = (item: { id: string; text: string }) => {
+    setArrangedItems(prev => prev.filter(i => i.id !== item.id));
+    setReorderItems(prev => [...prev, item]);
+    setSelectedOptions(prev => prev.filter(id => id !== item.id));
+  };
+
+  if (questionLoading) {
+    return (
+      <PTELayout title="Practice Session">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </PTELayout>
+    );
+  }
+
+  if (!question) {
+    return (
+      <PTELayout title="Practice Session">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground">Question not found.</p>
+            <Button asChild className="mt-4">
+              <a href="/practice">Back to Practice</a>
+            </Button>
+          </CardContent>
+        </Card>
+      </PTELayout>
+    );
+  }
+
+  const options = question.options ? (typeof question.options === "string" ? JSON.parse(question.options) : question.options) as Array<{ id: string; text: string; correct: boolean }> : [];
+
+  return (
+    <PTELayout title={question.title}>
+      <div className="max-w-3xl space-y-4">
+        {/* Header bar */}
+        <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="capitalize">{question.section}</Badge>
+            <Badge variant="secondary" className="capitalize">{question.taskType.replace(/_/g, " ")}</Badge>
+            <Badge variant="outline" className={`capitalize ${
+              question.difficulty === "easy" ? "border-green-300 text-green-700" :
+              question.difficulty === "medium" ? "border-yellow-300 text-yellow-700" : "border-red-300 text-red-700"
+            }`}>{question.difficulty}</Badge>
+          </div>
+          {!result && question.timeLimit && mode === "exam" && (
+            <CountdownTimer
+              seconds={question.timeLimit}
+              onExpire={handleTimeUp}
+              urgent
+            />
+          )}
+        </div>
+
+        {/* Mode hint */}
+        {mode === "beginner" && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-2">
+            <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-700">
+              <strong>Beginner Mode:</strong> Take your time. There's no strict time limit. Focus on understanding the task format.
+            </p>
+          </div>
+        )}
+
+        {/* Question card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-muted-foreground font-normal">{question.prompt}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Content display */}
+            {question.content && !["reorder_paragraphs", "fill_blanks_rw"].includes(question.taskType) && (
+              <div className="bg-muted/50 rounded-xl p-4 border border-border">
+                {question.taskType === "describe_image" ? (
+                  <div className="text-center">
+                    <div className="bg-gradient-to-br from-primary/10 to-accent/10 rounded-lg p-8 mb-3">
+                      <p className="text-sm text-muted-foreground italic">
+                        [Image: {question.content as string}]
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Describe what you see in the image above</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-foreground leading-relaxed">{question.content as string}</p>
+                )}
+              </div>
+            )}
+
+            {/* Speaking task */}
+            {isSpeakingTask && !result && (
+              <div>
+                {question.taskType === "repeat_sentence" && (
+                  <div className="bg-muted/50 rounded-xl p-4 mb-4 flex items-center gap-3">
+                    <Volume2 className="w-5 h-5 text-primary" />
+                    <p className="text-sm text-muted-foreground italic">
+                      Listen to the sentence, then repeat it. (In the real exam, audio plays automatically.)
+                    </p>
+                  </div>
+                )}
+                <AudioRecorder
+                  onRecordingComplete={(blob) => setAudioBlob(blob)}
+                  preparationTime={question.preparationTime || 0}
+                />
+                {audioBlob && (
+                  <div className="mt-3">
+                    <audio controls src={URL.createObjectURL(audioBlob)} className="w-full h-10" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Writing task */}
+            {isWritingTask && !result && (
+              <div className="space-y-3">
+                <Textarea
+                  value={textResponse}
+                  onChange={(e) => setTextResponse(e.target.value)}
+                  placeholder={question.taskType === "summarize_written_text"
+                    ? "Write your one-sentence summary here (5–75 words)..."
+                    : "Write your essay here (200–300 words)..."}
+                  className="min-h-[200px] text-sm resize-none"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Word count: {textResponse.trim().split(/\s+/).filter(Boolean).length}</span>
+                  {question.wordLimit && <span>Target: {question.taskType === "summarize_written_text" ? "5–75" : "200–300"} words</span>}
+                </div>
+                {mode === "beginner" && question.modelAnswer && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-green-700 mb-1">Model Answer (Beginner Mode)</p>
+                    <p className="text-xs text-green-600">{question.modelAnswer as string}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MCQ tasks */}
+            {(question.taskType === "multiple_choice_single" || question.taskType === "multiple_choice_multiple") && !result && (
+              <div className="space-y-2">
+                {options.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleOptionToggle(opt.id, question.taskType === "multiple_choice_single")}
+                    className={`w-full text-left p-3 rounded-xl border text-sm transition-all ${
+                      selectedOptions.includes(opt.id)
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-card hover:bg-muted"
+                    }`}
+                  >
+                    <span className="font-medium mr-2">{opt.id.toUpperCase()}.</span>
+                    {opt.text}
+                  </button>
+                ))}
+                {question.taskType === "multiple_choice_multiple" && (
+                  <p className="text-xs text-muted-foreground">Select all correct answers.</p>
+                )}
+              </div>
+            )}
+
+            {/* Reorder paragraphs */}
+            {question.taskType === "reorder_paragraphs" && !result && (
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Available (click to add)</p>
+                  <div className="space-y-2 min-h-[100px] border border-dashed border-border rounded-xl p-2">
+                    {reorderItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => moveToArranged(item)}
+                        className="w-full text-left p-2.5 bg-muted rounded-lg text-xs hover:bg-muted/80 transition-colors"
+                      >
+                        {item.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Your Order (click to remove)</p>
+                  <div className="space-y-2 min-h-[100px] border border-dashed border-primary/30 rounded-xl p-2">
+                    {arrangedItems.map((item, idx) => (
+                      <button
+                        key={item.id}
+                        onClick={() => moveBack(item)}
+                        className="w-full text-left p-2.5 bg-primary/10 border border-primary/20 rounded-lg text-xs hover:bg-primary/20 transition-colors"
+                      >
+                        <span className="font-bold text-primary mr-2">{idx + 1}.</span>
+                        {item.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Text input tasks (fill blanks, write from dictation) */}
+            {["fill_blanks_listening", "write_from_dictation", "fill_blanks_reading"].includes(question.taskType) && !result && (
+              <Textarea
+                value={textResponse}
+                onChange={(e) => setTextResponse(e.target.value)}
+                placeholder={question.taskType === "write_from_dictation"
+                  ? "Type the sentence exactly as you heard it..."
+                  : "Type your answers separated by commas..."}
+                className="min-h-[80px] text-sm"
+              />
+            )}
+
+            {/* Highlight correct summary */}
+            {question.taskType === "highlight_correct_summary" && !result && (
+              <div className="space-y-2">
+                {options.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSelectedOptions([opt.id])}
+                    className={`w-full text-left p-3 rounded-xl border text-sm transition-all ${
+                      selectedOptions.includes(opt.id)
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-card hover:bg-muted"
+                    }`}
+                  >
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Select missing word */}
+            {question.taskType === "select_missing_word" && !result && (
+              <div className="space-y-2">
+                {options.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSelectedOptions([opt.id])}
+                    className={`w-full text-left p-3 rounded-xl border text-sm transition-all ${
+                      selectedOptions.includes(opt.id)
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-card hover:bg-muted"
+                    }`}
+                  >
+                    <span className="font-medium mr-2">{opt.id.toUpperCase()}.</span>
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Result display */}
+            {result && <ScoreDisplay result={result} taskType={question.taskType} />}
+          </CardContent>
+        </Card>
+
+        {/* Action buttons */}
+        {!result ? (
+          <div className="flex justify-between items-center">
+            <Button variant="outline" asChild>
+              <a href="/practice">Cancel</a>
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || (isSpeakingTask && !audioBlob) || (isWritingTask && !textResponse.trim())}
+              className="bg-primary text-primary-foreground"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Scoring with AI...
+                </>
+              ) : (
+                <>
+                  Submit Answer
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex justify-between items-center">
+            <Button variant="outline" asChild>
+              <a href="/practice">
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Practice More
+              </a>
+            </Button>
+            <Button asChild className="bg-primary text-primary-foreground">
+              <a href={`/score-report/${sessionId}`}>
+                View Full Report
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </a>
+            </Button>
+          </div>
+        )}
+      </div>
+    </PTELayout>
+  );
+}
