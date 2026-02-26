@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   LayoutDashboard, BookOpen, Mic, PenLine, Headphones, Eye,
   BarChart3, Target, Settings, LogOut, ChevronRight, Trophy,
-  GraduationCap, Menu, X
+  GraduationCap, Menu, X, Brain
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -16,6 +16,7 @@ const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/practice", label: "Practice", icon: BookOpen },
   { path: "/mock-test", label: "Mock Test", icon: GraduationCap },
+  { path: "/coaching-plan", label: "AI Coaching Plan", icon: Brain },
   { path: "/learning-modes", label: "Learning Modes", icon: Target },
   { path: "/analytics", label: "Analytics", icon: BarChart3 },
   { path: "/profile", label: "Profile", icon: Settings },
@@ -97,7 +98,7 @@ export default function PTELayout({ children, title }: PTELayoutProps) {
               <GraduationCap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <p className="font-bold text-sidebar-foreground text-sm leading-tight">PTE Practice</p>
+              <p className="font-bold text-sidebar-foreground text-sm leading-tight">PTE<span className="text-teal-400">Master</span></p>
               <p className="text-xs text-sidebar-foreground/60">Academic Platform</p>
             </div>
           </div>

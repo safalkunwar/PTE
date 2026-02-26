@@ -80,3 +80,17 @@
 - [x] Improvement roadmap (dynamic)
 - [x] Task type tabs for all 20 task types
 - [x] Feature comparison table
+
+## Phase 2 — APEUni Redesign & AI Coaching (Completed)
+- [x] APEUni-style teal/cyan color scheme and dark sidebar
+- [x] PTEMaster branding with teal accent
+- [x] Home landing page redesigned in APEUni style
+- [x] Dashboard redesigned with dark sidebar and study stats
+- [x] AI coaching engine (aiCoach.ts) with task-specific personalized feedback
+- [x] AI coaching plan router (getTaskFeedback, getCoachingPlan)
+- [x] AIFeedbackPanel component (criterion scoring, error analysis, improvement tips, model answers)
+- [x] CoachingPlan page (4-week roadmap, skill gap analysis, daily schedule)
+- [x] Integrated AIFeedbackPanel into PracticeSession after submission
+- [x] Added AI Coaching Plan to sidebar navigation
+- [x] Question bank expanded to 127+ questions (expand-questions.mjs)
+- [x] Overview webpage enhanced: AI Feedback preview, 4-week roadmap, skill gap chart, daily schedule

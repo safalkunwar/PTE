@@ -13,6 +13,7 @@ import ScoreReport from "./pages/ScoreReport";
 import Analytics from "./pages/Analytics";
 import LearningModes from "./pages/LearningModes";
 import Profile from "./pages/Profile";
+import CoachingPlan from "./pages/CoachingPlan";
 
 function Router() {
   return (
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/learning-modes" component={LearningModes} />
       <Route path="/profile" component={Profile} />
+      <Route path="/coaching-plan" component={CoachingPlan} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

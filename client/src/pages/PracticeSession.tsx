@@ -10,8 +10,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Mic, MicOff, Square, Play, Clock, CheckCircle, AlertCircle,
-  ChevronRight, Volume2, Info, Loader2, ArrowRight, RotateCcw
+  ChevronRight, Volume2, Info, Loader2, ArrowRight, RotateCcw, Brain
 } from "lucide-react";
+import AIFeedbackPanel from "@/components/AIFeedbackPanel";
 
 
 interface TaskResult {
@@ -627,6 +628,16 @@ export default function PracticeSession() {
             {result && <ScoreDisplay result={result} taskType={question.taskType} />}
           </CardContent>
         </Card>
+
+        {/* AI Feedback Panel - shown after submission */}
+        {result && result.responseId && (
+          <AIFeedbackPanel
+            responseId={result.responseId}
+            taskType={question.taskType}
+            score={result.normalizedScore || 0}
+            maxScore={90}
+          />
+        )}
 
         {/* Action buttons */}
         {!result ? (

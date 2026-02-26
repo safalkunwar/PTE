@@ -14,6 +14,8 @@ import {
   scoreWritingTask, scoreSpeakingTask, scoreObjectiveTask,
   generateDiagnosticFeedback, normalizeToPTE,
 } from "./scoring";
+import { generateTaskFeedback, generateCoachingPlan, generateMicroFeedback } from "./aiCoach";
+import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { notifyOwner } from "./_core/notification";
 
@@ -364,6 +366,125 @@ const analyticsRouter = router({
     }),
 });
 
+// AI Coach router
+const aiCoachRouter = router({
+  // Get detailed AI feedback for a specific response
+  getTaskFeedback: protectedProcedure
+    .input(z.object({
+      responseId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const { userResponses, questions } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [response] = await db
+        .select()
+        .from(userResponses)
+        .where(eq(userResponses.id, input.responseId))
+        .limit(1);
+
+      if (!response || response.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      const [question] = await db
+        .select()
+        .from(questions)
+        .where(eq(questions.id, response.questionId))
+        .limit(1);
+
+      if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const feedback = await generateTaskFeedback({
+        taskType: question.taskType,
+        question: question.prompt || question.content || "",
+        studentResponse: response.responseText || response.transcription || "",
+        correctAnswer: question.correctAnswer || undefined,
+        score: response.totalScore || 0,
+        maxScore: 100,
+        transcription: response.transcription || undefined,
+      });
+
+      return feedback;
+    }),
+
+  // Generate personalized coaching plan
+  getCoachingPlan: protectedProcedure
+    .input(z.object({
+      targetScore: z.number().min(10).max(90).default(65),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sessions = await getUserSessions(ctx.user.id, 20);
+      const analytics = await getUserAnalytics(ctx.user.id);
+
+      const recentScores = sessions
+        .filter(s => s.overallScore)
+        .map(s => ({
+          taskType: s.sessionType,
+          section: s.section || "full",
+          score: s.overallScore || 50,
+          maxScore: 90,
+          date: s.completedAt || new Date(),
+        }));
+
+      const plan = await generateCoachingPlan({
+        userId: ctx.user.id,
+        targetScore: input.targetScore,
+        recentScores,
+        skillScores: {
+          grammar: undefined,
+          pronunciation: undefined,
+          fluency: undefined,
+        },
+      });
+
+      return plan;
+    }),
+
+  // Get micro-feedback for a specific error
+  getMicroFeedback: protectedProcedure
+    .input(z.object({
+      taskType: z.string(),
+      errorType: z.string(),
+      studentExample: z.string(),
+      correctExample: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return generateMicroFeedback(input);
+    }),
+
+  // Get AI-powered response to a practice question (for Beginner Mode)
+  getModelAnswer: protectedProcedure
+    .input(z.object({
+      questionId: z.number(),
+      taskType: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const question = await getQuestionById(input.questionId);
+      if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: "system",
+            content: `You are a PTE Academic expert. Provide a model answer for this ${input.taskType.replace(/_/g, " ")} task that would score 90/90. Include brief annotations explaining why each part is effective.`
+          },
+          {
+            role: "user",
+            content: `Task: ${question.prompt || question.content}\n\nProvide a model answer with brief annotations.`
+          }
+        ]
+      });
+
+      const content = result.choices[0]?.message?.content as string;
+      return { modelAnswer: content, question };
+    }),
+});
+
 // Profile router
 const profileRouter = router({
   update: protectedProcedure
@@ -394,6 +515,7 @@ export const appRouter = router({
   responses: responsesRouter,
   analytics: analyticsRouter,
   profile: profileRouter,
+  aiCoach: aiCoachRouter,
 });
 
 export type AppRouter = typeof appRouter;
