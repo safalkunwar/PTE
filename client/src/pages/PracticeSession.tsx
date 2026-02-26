@@ -30,6 +30,94 @@ interface TaskResult {
   timeTaken?: number;
 }
 
+// ── Repeat Sentence TTS Auto-play ───────────────────────────────────────────
+// Plays the sentence once automatically when the component mounts,
+// then shows a "Replay" button. Mimics the real PTE exam behaviour.
+
+function RepeatSentencePlayer({ sentence }: { sentence: string }) {
+  const [status, setStatus] = useState<"playing" | "done" | "error">("playing");
+  const [hasPlayed, setHasPlayed] = useState(false);
+
+  const playTTS = useCallback((text: string) => {
+    if (!("speechSynthesis" in window)) {
+      setStatus("error");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-GB";
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v =>
+      v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Natural") || v.name.includes("Premium"))
+    ) ?? voices.find(v => v.lang.startsWith("en"));
+    if (preferred) utterance.voice = preferred;
+    utterance.onend = () => { setStatus("done"); setHasPlayed(true); };
+    utterance.onerror = () => { setStatus("error"); setHasPlayed(true); };
+    window.speechSynthesis.speak(utterance);
+    setStatus("playing");
+  }, []);
+
+  // Auto-play on mount — wait for voices to load first
+  useEffect(() => {
+    const startPlayback = () => playTTS(sentence);
+    if (window.speechSynthesis.getVoices().length > 0) {
+      // Voices already loaded — small delay to let the UI render first
+      const t = setTimeout(startPlayback, 600);
+      return () => clearTimeout(t);
+    } else {
+      // Voices not yet loaded — wait for the event
+      window.speechSynthesis.addEventListener("voiceschanged", startPlayback, { once: true });
+      return () => window.speechSynthesis.removeEventListener("voiceschanged", startPlayback);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Stop on unmount
+  useEffect(() => () => { window.speechSynthesis.cancel(); }, []);
+
+  return (
+    <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+          status === "playing" ? "bg-teal-500 animate-pulse" : "bg-teal-100"
+        }`}>
+          <Volume2 className={`w-5 h-5 ${ status === "playing" ? "text-white" : "text-teal-600" }`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-teal-700">
+            {status === "playing" ? "Playing sentence…" : status === "done" ? "Sentence played — now repeat it" : "Could not play audio"}
+          </p>
+          <p className="text-xs text-teal-600 mt-0.5">
+            {status === "playing"
+              ? "Listen carefully. The sentence will play once."
+              : "Recording will begin automatically. Repeat the sentence exactly as you heard it."}
+          </p>
+        </div>
+        {hasPlayed && (
+          <button
+            onClick={() => playTTS(sentence)}
+            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-100 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Replay
+          </button>
+        )}
+      </div>
+      {status === "playing" && (
+        <div className="mt-3 flex items-center gap-1.5">
+          {[1,2,3,4,5,6,7,8].map(i => (
+            <div key={i} className="w-1 bg-teal-400 rounded-full animate-bounce"
+              style={{ height: `${6 + (i % 4) * 4}px`, animationDelay: `${i * 0.1}s` }} />
+          ))}
+          <span className="text-xs text-teal-500 ml-1 animate-pulse">Audio playing…</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Timer component
 function CountdownTimer({ seconds, onExpire, urgent = false }: { seconds: number; onExpire: () => void; urgent?: boolean }) {
   const [remaining, setRemaining] = useState(seconds);
@@ -470,8 +558,8 @@ export default function PracticeSession() {
             <CardTitle className="text-base text-muted-foreground font-normal">{question.prompt}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Content display — skip describe_image (handled inside SpeakingTask) */}
-            {question.content && !["-reorder_paragraphs", "fill_blanks_rw", "describe_image"].includes(question.taskType) && (
+            {/* Content display — skip describe_image (handled inside SpeakingTask) and repeat_sentence (audio only) */}
+            {question.content && !["-reorder_paragraphs", "fill_blanks_rw", "describe_image", "repeat_sentence"].includes(question.taskType) && (
               <div className="bg-muted/50 rounded-xl p-4 border border-border">
                 <p className="text-sm text-foreground leading-relaxed">{question.content as string}</p>
               </div>
@@ -480,18 +568,9 @@ export default function PracticeSession() {
             {/* Speaking task — enhanced with prep timer, live transcript, and colour highlighting */}
             {isSpeakingTask && (
               <div className="space-y-3">
-                {/* Repeat Sentence audio prompt notice */}
+                {/* Repeat Sentence TTS auto-play */}
                 {question.taskType === "repeat_sentence" && !result && (
-                  <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex items-center gap-3">
-                    <Volume2 className="w-5 h-5 text-teal-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-semibold text-teal-700">Listen, then Repeat</p>
-                      <p className="text-xs text-teal-600 mt-0.5">
-                        In the real exam, the sentence plays once automatically. Here it is shown as text.
-                        Recording begins after a {SPEAKING_TIMINGS.repeat_sentence?.prep ?? 0}s preparation period.
-                      </p>
-                    </div>
-                  </div>
+                  <RepeatSentencePlayer sentence={question.content as string} />
                 )}
 
                 {/* Task timing info banner */}

@@ -20,6 +20,7 @@ const LearningModes = lazy(() => import("./pages/LearningModes"));
 const Profile = lazy(() => import("./pages/Profile"));
 const CoachingPlan = lazy(() => import("./pages/CoachingPlan"));
 const RevisionMode = lazy(() => import("./pages/RevisionMode"));
+const Resources = lazy(() => import("./pages/Resources"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageLoader() {
@@ -63,6 +64,7 @@ function Router() {
         <Route path="/profile" component={Profile} />
         <Route path="/coaching-plan" component={CoachingPlan} />
         <Route path="/revision" component={RevisionMode} />
+        <Route path="/resources" component={Resources} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

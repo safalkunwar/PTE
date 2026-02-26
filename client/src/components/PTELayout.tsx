@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   LayoutDashboard, BookOpen, Mic, PenLine, Headphones, Eye,
   BarChart3, Target, Settings, LogOut, ChevronRight, Trophy,
-  GraduationCap, Menu, X, Brain, RotateCcw
+  GraduationCap, Menu, X, Brain, RotateCcw, FileText
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -21,6 +21,7 @@ const navItems = [
   { path: "/coaching-plan", label: "AI Coaching Plan", icon: Brain },
   { path: "/learning-modes", label: "Learning Modes", icon: Target },
   { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/resources", label: "Resources", icon: FileText },
   { path: "/profile", label: "Profile", icon: Settings },
 ];
 

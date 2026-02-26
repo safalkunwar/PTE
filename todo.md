@@ -176,3 +176,18 @@
 - [ ] Add confetti/celebration animation on high scores
 - [ ] Add smooth sidebar navigation highlight transitions
 - [ ] Lazy load heavy pages (Analytics, MockTest, RevisionMode)
+
+## Phase 8 — Practice Page Fix & Pearson Resources (COMPLETED)
+- [x] Fix "Practice Now" button redirect (links to /practice/:section for logged-in users, login page for guests)
+- [x] Practice page: questions hidden inside collapsible task type cards (accordion, collapsed by default)
+- [x] Show question list only when specific task type card is expanded/clicked
+- [x] Downloaded Pearson PTE Research Offline Practice Test (Jan 2024) — 1.8MB PDF
+- [x] Extracted official passages, transcripts, sample answers from Pearson PDF
+- [x] Created dedicated Resources page (/resources) with official Pearson materials
+- [x] Added Resources to sidebar navigation (PTELayout)
+- [x] Added Resources route to App.tsx
+- [x] Official sample passages: Read Aloud, Repeat Sentence, Summarize Written Text, Write Essay, Fill in Blanks (Umami), Re-order Paragraphs, Summarize Spoken Text, Write from Dictation
+- [x] PTE Score Bands reference table (10-90 scale, CEFR levels)
+- [x] Links to all 4 official free Pearson resources (PDF + web)
+- [x] Repeat Sentence TTS auto-play component added to PracticeSession
+- [x] All 71 tests passing, 0 TypeScript errors

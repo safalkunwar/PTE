@@ -11,10 +11,10 @@ import { useRef } from "react";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
 
 const TASK_TYPES = [
-  { section: "Speaking", color: "bg-blue-500", tasks: ["Read Aloud", "Repeat Sentence", "Describe Image", "Re-tell Lecture", "Answer Short Question"], icon: Mic },
-  { section: "Writing", color: "bg-purple-500", tasks: ["Summarize Written Text", "Write Essay"], icon: PenLine },
-  { section: "Reading", color: "bg-green-500", tasks: ["Fill in the Blanks", "Multiple Choice", "Re-order Paragraphs", "Reading & Writing FIB"], icon: BookOpen },
-  { section: "Listening", color: "bg-orange-500", tasks: ["Summarize Spoken Text", "MCQ", "Fill in the Blanks", "Highlight Correct Summary", "Write from Dictation"], icon: Headphones },
+  { section: "Speaking", id: "speaking", color: "bg-blue-500", tasks: ["Read Aloud", "Repeat Sentence", "Describe Image", "Re-tell Lecture", "Answer Short Question"], icon: Mic },
+  { section: "Writing", id: "writing", color: "bg-purple-500", tasks: ["Summarize Written Text", "Write Essay"], icon: PenLine },
+  { section: "Reading", id: "reading", color: "bg-green-500", tasks: ["Fill in the Blanks", "Multiple Choice", "Re-order Paragraphs", "Reading & Writing FIB"], icon: BookOpen },
+  { section: "Listening", id: "listening", color: "bg-orange-500", tasks: ["Summarize Spoken Text", "MCQ", "Fill in the Blanks", "Highlight Correct Summary", "Write from Dictation"], icon: Headphones },
 ];
 
 const STATS = [
@@ -174,26 +174,46 @@ export default function Home() {
                 <p className="text-sm font-semibold text-gray-700 mb-3">What's your target score?</p>
                 <div className="flex gap-2 flex-wrap">
                   {[50, 58, 65, 79].map(score => (
-                    <a
-                      key={score}
-                      href={getLoginUrl()}
-                      className="flex-1 min-w-[70px] text-center py-2.5 rounded-xl border-2 border-gray-200 hover:border-teal-500 hover:bg-teal-50 text-sm font-bold text-gray-700 hover:text-teal-700 transition-all cursor-pointer"
-                    >
-                      {score}+
-                    </a>
+                    isAuthenticated ? (
+                      <Link
+                        key={score}
+                        href="/practice"
+                        className="flex-1 min-w-[70px] text-center py-2.5 rounded-xl border-2 border-gray-200 hover:border-teal-500 hover:bg-teal-50 text-sm font-bold text-gray-700 hover:text-teal-700 transition-all cursor-pointer"
+                      >
+                        {score}+
+                      </Link>
+                    ) : (
+                      <a
+                        key={score}
+                        href={getLoginUrl()}
+                        className="flex-1 min-w-[70px] text-center py-2.5 rounded-xl border-2 border-gray-200 hover:border-teal-500 hover:bg-teal-50 text-sm font-bold text-gray-700 hover:text-teal-700 transition-all cursor-pointer"
+                      >
+                        {score}+
+                      </a>
+                    )
                   ))}
                 </div>
                 <p className="text-xs text-gray-500 mt-2">Select your target to get a personalized study plan</p>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3">
-                <a
-                  href={getLoginUrl()}
-                  className="flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-colors shadow-lg shadow-teal-200"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  Start Practicing Free
-                </a>
+                {isAuthenticated ? (
+                  <Link
+                    href="/practice"
+                    className="flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-colors shadow-lg shadow-teal-200"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    Start Practicing
+                  </Link>
+                ) : (
+                  <a
+                    href={getLoginUrl()}
+                    className="flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-colors shadow-lg shadow-teal-200"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    Start Practicing Free
+                  </a>
+                )}
                 <a
                   href="#features"
                   className="flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-semibold px-6 py-3.5 rounded-xl border border-gray-200 transition-colors"
@@ -368,12 +388,21 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                  <a
-                    href={getLoginUrl()}
-                    className="mt-4 flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors"
-                  >
-                    Practice Now <ChevronRight className="w-4 h-4" />
-                  </a>
+                  {isAuthenticated ? (
+                    <Link
+                      href={`/practice/${section.id}`}
+                      className="mt-4 flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors"
+                    >
+                      Practice Now <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  ) : (
+                    <a
+                      href={getLoginUrl()}
+                      className="mt-4 flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors"
+                    >
+                      Practice Now <ChevronRight className="w-4 h-4" />
+                    </a>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -416,10 +445,17 @@ export default function Home() {
               <p className="text-gray-600 mb-8 leading-relaxed">
                 Our AI scoring engine evaluates your responses against the same criteria Pearson uses — giving you a realistic preview of your actual exam score before test day.
               </p>
-              <a href={getLoginUrl()} className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors">
-                Get Your Score Estimate
-                <ArrowRight className="w-4 h-4" />
-              </a>
+              {isAuthenticated ? (
+                <Link href="/practice" className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors">
+                  Get Your Score Estimate
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <a href={getLoginUrl()} className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors">
+                  Get Your Score Estimate
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -507,13 +543,23 @@ export default function Home() {
           <p className="text-teal-100 mb-8 text-lg">
             Join thousands of PTE candidates who improved their scores with AI-powered practice. Start free today — no credit card required.
           </p>
-          <a
-            href={getLoginUrl()}
-            className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-teal-700 font-bold px-8 py-4 rounded-xl transition-colors shadow-xl text-lg"
-          >
-            <Play className="w-5 h-5 fill-teal-600 text-teal-600" />
-            Start Practicing Free
-          </a>
+          {isAuthenticated ? (
+            <Link
+              href="/practice"
+              className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-teal-700 font-bold px-8 py-4 rounded-xl transition-colors shadow-xl text-lg"
+            >
+              <Play className="w-5 h-5 fill-teal-600 text-teal-600" />
+              Start Practicing
+            </Link>
+          ) : (
+            <a
+              href={getLoginUrl()}
+              className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-teal-700 font-bold px-8 py-4 rounded-xl transition-colors shadow-xl text-lg"
+            >
+              <Play className="w-5 h-5 fill-teal-600 text-teal-600" />
+              Start Practicing Free
+            </a>
+          )}
           <p className="text-teal-200 text-sm mt-4">500+ practice questions · AI scoring · Personalized coaching</p>
         </div>
       </section>
