@@ -13,6 +13,7 @@ import {
   ChevronRight, Volume2, Info, Loader2, ArrowRight, RotateCcw, Brain
 } from "lucide-react";
 import AIFeedbackPanel from "@/components/AIFeedbackPanel";
+import SpeakingTask, { SPEAKING_TIMINGS } from "@/components/SpeakingTask";
 
 
 interface TaskResult {
@@ -25,6 +26,8 @@ interface TaskResult {
   fluencyFeedback?: string;
   grammarErrors?: string[];
   isCorrect?: boolean;
+  transcription?: string;  // Whisper transcription returned from server
+  timeTaken?: number;
 }
 
 // Timer component
@@ -293,8 +296,12 @@ export default function PracticeSession() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [startTime] = useState(Date.now());
   const [timedOut, setTimedOut] = useState(false);
-  const [reorderItems, setReorderItems] = useState<Array<{ id: string; text: string }>>([]);
-  const [arrangedItems, setArrangedItems] = useState<Array<{ id: string; text: string }>>([]);
+  const [reorderItems, setReorderItems] = useState<Array<{ id: string; text: string }>>([])
+  const [arrangedItems, setArrangedItems] = useState<Array<{ id: string; text: string }>>([])
+  // Speaking-specific state
+  const [speakingTranscription, setSpeakingTranscription] = useState<string | undefined>(undefined);
+  const [recordingDuration, setRecordingDuration] = useState<number>(0);
+  const recordingStartRef = useRef<number>(0);
 
   // Initialize reorder items
   useEffect(() => {
@@ -347,7 +354,13 @@ export default function PracticeSession() {
         timeTaken,
       });
 
-      setResult(response as TaskResult);
+      const taskResult = response as TaskResult;
+      setResult(taskResult);
+
+      // Capture Whisper transcription for word-level analysis
+      if (taskResult.transcription) {
+        setSpeakingTranscription(taskResult.transcription);
+      }
 
       // Complete session
       await completeSession.mutateAsync({ id: sessionId });
@@ -468,26 +481,53 @@ export default function PracticeSession() {
               </div>
             )}
 
-            {/* Speaking task */}
-            {isSpeakingTask && !result && (
-              <div>
-                {question.taskType === "repeat_sentence" && (
-                  <div className="bg-muted/50 rounded-xl p-4 mb-4 flex items-center gap-3">
-                    <Volume2 className="w-5 h-5 text-primary" />
-                    <p className="text-sm text-muted-foreground italic">
-                      Listen to the sentence, then repeat it. (In the real exam, audio plays automatically.)
-                    </p>
+            {/* Speaking task — enhanced with prep timer, live transcript, and colour highlighting */}
+            {isSpeakingTask && (
+              <div className="space-y-3">
+                {/* Repeat Sentence audio prompt notice */}
+                {question.taskType === "repeat_sentence" && !result && (
+                  <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex items-center gap-3">
+                    <Volume2 className="w-5 h-5 text-teal-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-teal-700">Listen, then Repeat</p>
+                      <p className="text-xs text-teal-600 mt-0.5">
+                        In the real exam, the sentence plays once automatically. Here it is shown as text.
+                        Recording begins after a {SPEAKING_TIMINGS.repeat_sentence?.prep ?? 0}s preparation period.
+                      </p>
+                    </div>
                   </div>
                 )}
-                <AudioRecorder
-                  onRecordingComplete={(blob) => setAudioBlob(blob)}
-                  preparationTime={question.preparationTime || 0}
+
+                {/* Task timing info banner */}
+                {!result && (() => {
+                  const t = SPEAKING_TIMINGS[question.taskType];
+                  return t ? (
+                    <div className="flex gap-3 text-xs">
+                      {t.prep > 0 && (
+                        <div className="flex items-center gap-1.5 bg-teal-50 border border-teal-200 rounded-lg px-3 py-1.5">
+                          <Clock className="w-3.5 h-3.5 text-teal-500" />
+                          <span className="text-teal-700 font-medium">Prep: {t.prep}s</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+                        <Mic className="w-3.5 h-3.5 text-red-500" />
+                        <span className="text-red-700 font-medium">Record: {t.record}s</span>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
+                <SpeakingTask
+                  taskType={question.taskType}
+                  originalText={question.content as string | undefined}
+                  onRecordingComplete={(blob) => {
+                    setAudioBlob(blob);
+                    setRecordingDuration((Date.now() - recordingStartRef.current) / 1000);
+                  }}
+                  transcription={speakingTranscription}
+                  isSubmitted={!!result}
+                  recordingDuration={recordingDuration}
                 />
-                {audioBlob && (
-                  <div className="mt-3">
-                    <audio controls src={URL.createObjectURL(audioBlob)} className="w-full h-10" />
-                  </div>
-                )}
               </div>
             )}
 

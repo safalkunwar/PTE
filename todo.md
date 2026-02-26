@@ -111,3 +111,20 @@
 - [x] Show SRS due count badge in sidebar navigation (auto-refreshes every 60s)
 - [x] Write SM-2 algorithm unit tests (46 tests covering all SM-2 edge cases)
 - [x] All 70 tests passing (46 SM-2 + 23 scoring + 1 auth)
+
+## Phase 4 — Speaking Section Enhancements (COMPLETED)
+- [x] Preparation countdown timer (per task type: Read Aloud=40s, Repeat Sentence=0s, Describe Image=25s, Re-tell Lecture=10s, Answer Short Question=3s)
+- [x] Recording phase timer (per task type: Read Aloud=40s, Repeat Sentence=15s, Describe Image=40s, Re-tell Lecture=40s, Answer Short Question=10s)
+- [x] Visual prep phase UI: animated SVG circular countdown, teal gradient, task-specific tips, auto-transitions to recording
+- [x] Real-time transcription display during recording (Web Speech API live transcript + Whisper final transcription)
+- [x] Word-level pronunciation colour highlighting (green=correct, yellow=hesitation, red=mispronounced, blue=extra, grey=missing)
+- [x] Pronunciation comparison: original text vs spoken text side by side
+- [x] Colour legend with interactive tooltips on hover
+- [x] Fluency metrics: WPM, pause count, accuracy %, omission % with colour-coded feedback
+- [x] WPM guide (< 80 = too slow, 100–160 = ideal, > 200 = too fast)
+- [x] Dedicated SpeakingTask component (client/src/components/SpeakingTask.tsx)
+- [x] LCS-based word alignment algorithm for accurate original vs spoken comparison
+- [x] Timing info banner showing prep and record durations before task starts
+- [x] Server returns Whisper transcription in submit response for client-side word alignment
+- [x] getResponseById helper added to db.ts
+- [x] All 70 tests still passing, 0 TypeScript errors

@@ -480,3 +480,10 @@ export async function autoCreateSrsCardsFromSession(userId: number, sessionId: n
   }
   return created;
 }
+
+export async function getResponseById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(userResponses).where(eq(userResponses.id, id)).limit(1);
+  return result[0] ?? undefined;
+}

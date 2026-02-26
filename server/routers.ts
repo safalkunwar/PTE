@@ -10,7 +10,7 @@ import {
   getUserAnalytics, getTodayTarget, upsertPracticeTarget, getUserMilestones,
   createMilestone, updateUserProfile, getQuestionsCount,
   getDueCards, getUpcomingCards, getOrCreateSrsCard, updateSrsCard, logSrsReview,
-  getSrsStats, getSrsCardById, autoCreateSrsCardsFromSession,
+  getSrsStats, getSrsCardById, autoCreateSrsCardsFromSession, getResponseById,
 } from "./db";
 import {
   computeSm2, scoreToRating, getIntervalPreviews, getRatingLabel, type SrsRating,
@@ -326,7 +326,17 @@ const responsesRouter = router({
         });
       }
 
-      return { responseId, ...scoreData };
+      // Fetch the saved response to get the Whisper transcription
+      // (transcription is saved separately before scoreData update)
+      let savedTranscription: string | undefined;
+      if (question.section === "speaking") {
+        try {
+          const saved = await getResponseById(responseId);
+          savedTranscription = saved?.transcription ?? undefined;
+        } catch {}
+      }
+
+      return { responseId, ...scoreData, transcription: savedTranscription };
     }),
 
   transcribeAudio: protectedProcedure
