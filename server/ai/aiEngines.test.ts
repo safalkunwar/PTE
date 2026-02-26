@@ -12,7 +12,7 @@
  * calibrated to match expected scoring behaviour.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mock the LLM helper ────────────────────────────────────────────────────
 vi.mock("../_core/llm", () => ({
@@ -44,7 +44,7 @@ function mockLLMResponse(content: object) {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("Speaking AI Engine", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("scores Read Aloud with all required traits", async () => {
@@ -150,7 +150,7 @@ describe("Speaking AI Engine", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("Writing AI Engine", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("scores Write Essay with all 6 traits", async () => {
@@ -242,7 +242,7 @@ describe("Writing AI Engine", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("Reading AI Engine", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("scores Multiple Choice Single Answer correctly", async () => {
@@ -314,7 +314,7 @@ describe("Reading AI Engine", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("Listening AI Engine", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("scores Summarize Spoken Text with 5 traits", async () => {

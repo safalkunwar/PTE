@@ -1,76 +1,139 @@
 /**
- * Reading AI Scoring Engine
+ * Reading AI Scoring Engine — High-Accuracy Rebuild
  *
- * Built on official Pearson PTE Academic scoring criteria (Score Guide v21, Nov 2024).
- * Reading tasks are primarily objectively scored (correct/incorrect or partial credit).
- * This engine adds explanation generation and strategy coaching on top of objective scoring.
+ * Architecture:
+ *   1. ALL scoring is deterministic in TypeScript (no LLM for score calculation)
+ *      → LLM is used ONLY for explanation generation and strategy coaching
+ *   2. Chain-of-thought prompting for explanation quality
+ *   3. Passage-grounded explanations: LLM must cite specific text evidence
+ *   4. Distractor analysis: explains why wrong options are wrong
+ *   5. Error classification: identifies the reading skill being tested
  *
- * Task types covered:
- *   - Reading & Writing: Fill in the Blanks  → Partial credit (1 per correct blank)
- *   - Multiple Choice (Multiple Answers)      → Partial credit (+1 correct, -1 incorrect)
- *   - Re-order Paragraphs                     → Partial credit (1 per correct adjacent pair)
- *   - Reading: Fill in the Blanks             → Partial credit (1 per correct blank)
- *   - Multiple Choice (Single Answer)         → Correct/incorrect (1 or 0)
+ * Official sources:
+ *   - Pearson PTE Academic Score Guide v21 (Nov 2024)
+ *   - Pearson PTE Scoring Information for Teachers and Partners (2024)
  */
 
 import { invokeLLM } from "../_core/llm";
 
+// ─── Deterministic Scoring Utilities ─────────────────────────────────────────
+
+function normalizeAnswer(answer: string): string {
+  return answer.toLowerCase().trim().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
+}
+
+function answersMatch(a: string, b: string): boolean {
+  return normalizeAnswer(a) === normalizeAnswer(b);
+}
+
+function computePTEScore(rawScore: number, maxRawScore: number): number {
+  if (maxRawScore === 0) return 10;
+  const pte = Math.round(10 + (rawScore / maxRawScore) * 80);
+  return Math.max(10, Math.min(90, pte));
+}
+
+function computeCEFR(pteScore: number): string {
+  if (pteScore >= 85) return "C2";
+  if (pteScore >= 76) return "C1";
+  if (pteScore >= 59) return "B2";
+  if (pteScore >= 43) return "B1";
+  if (pteScore >= 29) return "A2";
+  return "A1";
+}
+
+/**
+ * Compute adjacent pair score for Re-order Paragraphs.
+ * Official Pearson method: 1 point per correctly ordered consecutive pair.
+ */
+function computeAdjacentPairScore(correctOrder: string[], userOrder: string[]): number {
+  let score = 0;
+  // Build set of correct adjacent pairs
+  const correctPairs = new Set<string>();
+  for (let i = 0; i < correctOrder.length - 1; i++) {
+    correctPairs.add(`${correctOrder[i]}|${correctOrder[i + 1]}`);
+  }
+  // Check user's adjacent pairs against correct pairs
+  for (let i = 0; i < userOrder.length - 1; i++) {
+    if (correctPairs.has(`${userOrder[i]}|${userOrder[i + 1]}`)) {
+      score++;
+    }
+  }
+  return score;
+}
+
 // ─── Official PTE Reading Scoring Rules ───────────────────────────────────────
+
 const READING_SCORING_RULES = `
-READING SCORING RULES (Official Pearson PTE Academic, Score Guide v21, Nov 2024)
+READING SCORING RULES — Official Pearson PTE Academic Score Guide v21 (Nov 2024)
 
-Reading & Writing: Fill in the Blanks (5-6 items):
-  Scoring: Partial credit — 1 point for each correctly completed blank.
+Reading & Writing: Fill in the Blanks:
+  Scoring: PARTIAL CREDIT — 1 point for each correctly completed blank.
   Minimum score: 0. No negative marking.
-  Skills assessed: Reading AND Writing.
+  Skills: Reading comprehension + vocabulary knowledge + collocation awareness.
 
-Multiple Choice, Choose Multiple Answers (1-2 items):
-  Scoring: Partial credit — +1 for each correct option selected, -1 for each incorrect option.
-  Minimum score: 0 (cannot go below 0).
-  Skills assessed: Reading.
+Multiple Choice, Choose Multiple Answers:
+  Scoring: PARTIAL CREDIT — +1 for each correct option selected, -1 for each incorrect option.
+  Minimum score: 0 (cannot go below zero).
+  Skills: Reading comprehension, identifying multiple correct statements.
+  ⚠ NEGATIVE MARKING: Selecting wrong options REDUCES your score. Only select options you are confident about.
 
-Re-order Paragraphs (2-3 items):
-  Scoring: Partial credit — 1 point for each correctly ordered ADJACENT PAIR of text boxes.
-  Example: If correct order is [A,B,C,D] and test taker answers [A,C,B,D]:
-    Adjacent pairs in answer: (A,C), (C,B), (B,D)
-    Correct adjacent pairs: (A,B)=No, (B,C)=No, (C,D)=No → but (A,C) no, (C,B) no, (B,D) no
-    Actually: check if each consecutive pair in the answer matches a consecutive pair in the correct order.
+Re-order Paragraphs:
+  Scoring: PARTIAL CREDIT — 1 point for each correctly ordered ADJACENT PAIR.
+  Example: Correct=[A,B,C,D], User=[A,C,B,D]
+    User pairs: (A,C), (C,B), (B,D)
+    Correct pairs: (A,B), (B,C), (C,D)
+    Matching pairs: none → score = 0
   Minimum score: 0.
-  Skills assessed: Reading.
+  Skills: Text structure comprehension, discourse coherence.
 
-Reading: Fill in the Blanks (4-5 items):
-  Scoring: Partial credit — 1 point for each correctly completed blank.
+Reading: Fill in the Blanks:
+  Scoring: PARTIAL CREDIT — 1 point for each correctly completed blank.
   Minimum score: 0.
-  Skills assessed: Reading.
+  Skills: Reading comprehension, vocabulary, grammar.
 
-Multiple Choice, Choose Single Answer (1-2 items):
-  Scoring: Correct/incorrect — 1 point if correct, 0 if incorrect.
-  Skills assessed: Reading.
+Multiple Choice, Choose Single Answer:
+  Scoring: CORRECT/INCORRECT — 1 point if correct, 0 if incorrect.
+  Skills: Reading comprehension, main idea, detail, inference.
 `;
 
-// ─── Reading Strategy Coaching by CEFR Level ─────────────────────────────────
+// ─── Reading Strategy Coaching ────────────────────────────────────────────────
+
 const READING_STRATEGY_COACHING = `
-READING STRATEGY COACHING BY CEFR LEVEL
+READING STRATEGY COACHING BY TASK TYPE AND CEFR LEVEL
 
-C2/C1 — Advanced Strategies:
-  - Skim for global meaning, scan for specific information simultaneously.
-  - Use discourse markers (however, furthermore, consequently) to identify text structure.
-  - Infer meaning from context for unknown vocabulary.
-  - For FIB: consider collocation patterns and register consistency.
-  - For Re-order: look for pronoun references, topic sentences, and logical connectors.
+FILL IN THE BLANKS STRATEGIES:
+  Step 1: Read the entire passage first to understand context.
+  Step 2: For each blank, determine the grammatical category needed (noun/verb/adjective/adverb).
+  Step 3: Check collocation: which word "goes with" the surrounding words naturally?
+  Step 4: Check register: academic/formal text requires academic/formal vocabulary.
+  Step 5: Eliminate options that don't fit grammatically, then choose the best semantic fit.
+  Common traps: Words with similar meanings but different collocations (e.g., "make" vs "do").
 
-B2 — Upper-Intermediate Strategies:
-  - Read topic sentences of each paragraph to get the main idea.
-  - For MCQ: eliminate obviously wrong options first, then compare remaining.
-  - For FIB: check grammatical fit (noun/verb/adjective) before semantic fit.
-  - For Re-order: identify the introduction (no pronoun reference to preceding text).
+MULTIPLE CHOICE SINGLE ANSWER STRATEGIES:
+  Step 1: Read the question BEFORE reading the passage.
+  Step 2: Identify the question type: main idea, specific detail, inference, vocabulary, author's purpose.
+  Step 3: Locate the relevant section of the passage.
+  Step 4: Eliminate obviously wrong options.
+  Step 5: For remaining options, find direct evidence in the passage text.
+  Common traps: Options that are true but don't answer the specific question asked.
 
-B1 — Intermediate Strategies:
-  - Focus on key words in the question to guide reading.
-  - For MCQ: re-read the relevant paragraph before choosing.
-  - For FIB: try each option in the blank and read the whole sentence aloud.
-  - For Re-order: look for time markers (first, then, finally) and cause-effect language.
+MULTIPLE CHOICE MULTIPLE ANSWERS STRATEGIES:
+  Step 1: Treat each option independently as true/false.
+  Step 2: Find passage evidence for each option before selecting.
+  Step 3: NEVER select an option just because it "sounds right" — negative marking applies.
+  Step 4: If unsure about an option, leave it unselected (0 points better than -1).
+  Common traps: Options that are partially true, options that contradict the passage.
+
+RE-ORDER PARAGRAPHS STRATEGIES:
+  Step 1: Find the INTRODUCTION paragraph (no pronoun reference to preceding text, introduces the topic).
+  Step 2: Find the CONCLUSION paragraph (summarizes, uses "in conclusion/overall/therefore").
+  Step 3: Look for pronoun references (he/she/it/they/this/these) — they must refer to something in the previous paragraph.
+  Step 4: Look for discourse markers: "However", "Furthermore", "In addition", "As a result".
+  Step 5: Look for time sequences, cause-effect relationships, and examples following claims.
+  Common traps: Paragraphs that seem to fit in multiple positions.
 `;
+
+// ─── Interfaces ───────────────────────────────────────────────────────────────
 
 export interface ReadingScoreResult {
   taskType: string;
@@ -79,18 +142,49 @@ export interface ReadingScoreResult {
   maxRawScore: number;
   correctAnswers: string[];
   userAnswers: string[];
-  explanation: string; // Why each answer is correct/incorrect
+  explanation?: string; // Why each answer is correct/incorrect
   cefrLevel: string;
   overallFeedback: string;
   strengths: string[];
   improvements: string[];
   strategyTips: string[];
+  blankAnalysis?: Array<{
+    blankNumber: number;
+    correctAnswer: string;
+    userAnswer: string;
+    isCorrect: boolean;
+    explanation: string;
+  }>;
 }
 
-/**
- * Score Reading & Writing Fill in the Blanks.
- * Each blank: 1 point if correct, 0 if wrong.
- */
+// ─── Shared JSON Schema ───────────────────────────────────────────────────────
+
+const BASE_READING_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    taskType: { type: "string" as const },
+    overallScore: { type: "integer" as const },
+    rawScore: { type: "integer" as const },
+    maxRawScore: { type: "integer" as const },
+    correctAnswers: { type: "array" as const, items: { type: "string" as const } },
+    userAnswers: { type: "array" as const, items: { type: "string" as const } },
+    explanation: { type: "string" as const },
+    cefrLevel: { type: "string" as const },
+    overallFeedback: { type: "string" as const },
+    strengths: { type: "array" as const, items: { type: "string" as const } },
+    improvements: { type: "array" as const, items: { type: "string" as const } },
+    strategyTips: { type: "array" as const, items: { type: "string" as const } },
+  },
+  required: [
+    "taskType", "overallScore", "rawScore", "maxRawScore",
+    "correctAnswers", "userAnswers", "explanation", "cefrLevel",
+    "overallFeedback", "strengths", "improvements", "strategyTips",
+  ] as string[],
+  additionalProperties: false as const,
+};
+
+// ─── Fill in the Blanks ───────────────────────────────────────────────────────
+
 export async function scoreReadingFillBlanks(params: {
   passage: string;
   blanks: Array<{ position: number; correctAnswer: string; userAnswer: string; options: string[] }>;
@@ -98,55 +192,69 @@ export async function scoreReadingFillBlanks(params: {
 }): Promise<ReadingScoreResult> {
   const { passage, blanks, taskType } = params;
 
-  const rawScore = blanks.filter(b =>
-    b.userAnswer.toLowerCase().trim() === b.correctAnswer.toLowerCase().trim()
-  ).length;
+  // Deterministic scoring
+  const blankResults = blanks.map((b) => ({
+    ...b,
+    isCorrect: answersMatch(b.userAnswer, b.correctAnswer),
+  }));
+  const rawScore = blankResults.filter((b) => b.isCorrect).length;
   const maxRawScore = blanks.length;
-  const pteScore = Math.round(10 + (rawScore / maxRawScore) * 80);
-  const cefrLevel = pteScore >= 85 ? "C2" : pteScore >= 76 ? "C1" : pteScore >= 59 ? "B2" : pteScore >= 43 ? "B1" : pteScore >= 29 ? "A2" : "A1";
+  const pteScore = computePTEScore(rawScore, maxRawScore);
+  const cefrLevel = computeCEFR(pteScore);
 
-  const blankSummary = blanks.map((b, i) =>
-    `Blank ${i + 1}: Correct="${b.correctAnswer}", User="${b.userAnswer}", Options=[${b.options.join(", ")}], ${b.userAnswer.toLowerCase() === b.correctAnswer.toLowerCase() ? "✓ CORRECT" : "✗ WRONG"}`
-  ).join("\n");
+  const blankSummary = blankResults
+    .map(
+      (b, i) =>
+        `Blank ${i + 1}: Correct="${b.correctAnswer}" | User="${b.userAnswer}" | Options=[${b.options.join(", ")}] | ${b.isCorrect ? "✓ CORRECT" : "✗ WRONG"}`
+    )
+    .join("\n");
 
-  const prompt = `You are an expert PTE Academic examiner.
-Analyze this Fill in the Blanks reading response and provide detailed explanations.
+  const incorrectBlanks = blankResults.filter((b) => !b.isCorrect);
 
+  const prompt = `You are a certified PTE Academic examiner.
+Analyze this Fill in the Blanks response with CHAIN-OF-THOUGHT reasoning.
+
+═══ TASK INPUT ═══
 TASK TYPE: ${taskType === "reading_writing_fill_blanks" ? "Reading & Writing: Fill in the Blanks" : "Reading: Fill in the Blanks"}
 PASSAGE: "${passage}"
 
-BLANK RESULTS:
+BLANK RESULTS (scores already computed — do NOT change them):
 ${blankSummary}
 
-SCORE: ${rawScore}/${maxRawScore} (PTE: ${pteScore}/90, CEFR: ${cefrLevel})
+SCORE: ${rawScore}/${maxRawScore} (PTE: ${pteScore}, CEFR: ${cefrLevel})
 
 ${READING_SCORING_RULES}
 ${READING_STRATEGY_COACHING}
 
-For each INCORRECT blank, explain:
-1. Why the correct answer is right (grammatical fit, semantic fit, collocation, context clues).
-2. Why the user's answer is wrong.
-3. What vocabulary/grammar knowledge would help.
+═══ CHAIN-OF-THOUGHT ANALYSIS INSTRUCTIONS ═══
 
-Respond ONLY with valid JSON:
-{
-  "taskType": "${taskType}",
-  "overallScore": ${pteScore},
-  "rawScore": ${rawScore},
-  "maxRawScore": ${maxRawScore},
-  "correctAnswers": [${blanks.map(b => `"${b.correctAnswer}"`).join(", ")}],
-  "userAnswers": [${blanks.map(b => `"${b.userAnswer}"`).join(", ")}],
-  "explanation": "<detailed explanation of each blank, especially incorrect ones>",
-  "cefrLevel": "${cefrLevel}",
-  "overallFeedback": "<2-3 sentence assessment of reading comprehension and vocabulary>",
-  "strengths": ["<what the user did well>"],
-  "improvements": ["<specific improvement 1>", "<specific improvement 2>"],
-  "strategyTips": ["<strategy tip 1>", "<strategy tip 2>"]
-}`;
+STEP 1 — FOR EACH INCORRECT BLANK, ANALYZE:
+  a) What grammatical category is needed at this position? (noun/verb/adj/adverb)
+  b) What does the context tell us about the meaning needed?
+  c) Why is "${incorrectBlanks.map((b) => b.correctAnswer).join('", "')}" the correct answer?
+     - Cite the specific words in the passage that provide the context clue.
+     - Explain the collocation pattern (what words naturally go together).
+  d) Why is the user's answer wrong?
+     - Is it the wrong grammatical category?
+     - Is it semantically incorrect in this context?
+     - Is it a common distractor trap?
+
+STEP 2 — READING SKILL DIAGNOSIS:
+  What reading skills does this task test? (vocabulary, collocation, grammar, context inference)
+  What specific knowledge gap led to the incorrect answers?
+
+STEP 3 — STRATEGY COACHING:
+  Provide 2-3 specific, actionable tips for this exact passage and blank type.
+
+Respond ONLY with valid JSON:`;
 
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: "You are a certified PTE Academic examiner. Return only valid JSON." },
+      {
+        role: "system",
+        content:
+          "You are a certified PTE Academic examiner. Reason step by step, then return ONLY valid JSON. Always cite specific passage text as evidence.",
+      },
       { role: "user", content: prompt },
     ],
     response_format: {
@@ -154,36 +262,35 @@ Respond ONLY with valid JSON:
       json_schema: {
         name: "fill_blanks_score",
         strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            taskType: { type: "string" },
-            overallScore: { type: "integer" },
-            rawScore: { type: "integer" },
-            maxRawScore: { type: "integer" },
-            correctAnswers: { type: "array", items: { type: "string" } },
-            userAnswers: { type: "array", items: { type: "string" } },
-            explanation: { type: "string" },
-            cefrLevel: { type: "string" },
-            overallFeedback: { type: "string" },
-            strengths: { type: "array", items: { type: "string" } },
-            improvements: { type: "array", items: { type: "string" } },
-            strategyTips: { type: "array", items: { type: "string" } },
-          },
-          required: ["taskType", "overallScore", "rawScore", "maxRawScore", "correctAnswers", "userAnswers", "explanation", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
-          additionalProperties: false,
-        },
+        schema: BASE_READING_SCHEMA,
       },
     },
   });
 
-  return JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+  const result = JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+
+  // Override all scores with deterministic values
+  result.overallScore = pteScore;
+  result.rawScore = rawScore;
+  result.maxRawScore = maxRawScore;
+  result.cefrLevel = cefrLevel;
+  result.correctAnswers = blanks.map((b) => b.correctAnswer);
+  result.userAnswers = blanks.map((b) => b.userAnswer);
+
+  // Add blank-level analysis
+  result.blankAnalysis = blankResults.map((b, i) => ({
+    blankNumber: i + 1,
+    correctAnswer: b.correctAnswer,
+    userAnswer: b.userAnswer,
+    isCorrect: b.isCorrect,
+    explanation: b.isCorrect ? "Correct answer selected." : `Incorrect. The correct answer is "${b.correctAnswer}".`,
+  }));
+
+  return result;
 }
 
-/**
- * Score Multiple Choice (Single Answer).
- * 1 point if correct, 0 if wrong.
- */
+// ─── Multiple Choice Single Answer ───────────────────────────────────────────
+
 export async function scoreMultipleChoiceSingle(params: {
   passage: string;
   question: string;
@@ -193,48 +300,65 @@ export async function scoreMultipleChoiceSingle(params: {
 }): Promise<ReadingScoreResult> {
   const { passage, question, options, correctAnswer, userAnswer } = params;
 
-  const isCorrect = userAnswer.toLowerCase().trim() === correctAnswer.toLowerCase().trim();
+  // Deterministic scoring
+  const isCorrect = answersMatch(userAnswer, correctAnswer);
   const rawScore = isCorrect ? 1 : 0;
   const pteScore = isCorrect ? 90 : 10;
-  const cefrLevel = isCorrect ? "C1" : "B1";
+  const cefrLevel = computeCEFR(pteScore);
 
-  const prompt = `You are an expert PTE Academic examiner.
-Analyze this Multiple Choice (Single Answer) reading response.
+  const optionsList = options
+    .map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`)
+    .join("\n");
 
+  const prompt = `You are a certified PTE Academic examiner.
+Analyze this Multiple Choice (Single Answer) reading response with CHAIN-OF-THOUGHT reasoning.
+
+═══ TASK INPUT ═══
 PASSAGE: "${passage}"
 QUESTION: "${question}"
-OPTIONS: ${options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join(", ")}
+OPTIONS:
+${optionsList}
 CORRECT ANSWER: "${correctAnswer}"
 USER ANSWER: "${userAnswer}"
-RESULT: ${isCorrect ? "CORRECT ✓" : "INCORRECT ✗"}
+RESULT: ${isCorrect ? "✓ CORRECT" : "✗ INCORRECT"}
 
 ${READING_SCORING_RULES}
 ${READING_STRATEGY_COACHING}
 
-Explain:
-1. Why the correct answer is right (cite specific evidence from the passage).
-2. If wrong, why the user's answer is incorrect and what distractor trap they fell into.
-3. What reading skill this question tests (main idea, detail, inference, vocabulary, etc.).
+═══ CHAIN-OF-THOUGHT ANALYSIS INSTRUCTIONS ═══
 
-Respond ONLY with valid JSON:
-{
-  "taskType": "multiple_choice_single",
-  "overallScore": ${pteScore},
-  "rawScore": ${rawScore},
-  "maxRawScore": 1,
-  "correctAnswers": ["${correctAnswer}"],
-  "userAnswers": ["${userAnswer}"],
-  "explanation": "<detailed explanation with passage evidence>",
-  "cefrLevel": "${cefrLevel}",
-  "overallFeedback": "<assessment of reading comprehension skill demonstrated>",
-  "strengths": ${isCorrect ? '["Correctly identified the answer"]' : '[]'},
-  "improvements": ${!isCorrect ? '["<what to look for next time>"]' : '[]'},
-  "strategyTips": ["<strategy tip for this question type>"]
-}`;
+STEP 1 — QUESTION TYPE IDENTIFICATION:
+  What reading skill does this question test?
+  - Main idea / central theme
+  - Specific detail / factual information
+  - Inference / implied meaning
+  - Vocabulary in context
+  - Author's purpose / attitude / tone
+  - Text structure / organization
+
+STEP 2 — CORRECT ANSWER JUSTIFICATION:
+  a) Find the specific sentence(s) in the passage that support the correct answer.
+  b) Quote the relevant passage text directly.
+  c) Explain the logical connection between the passage evidence and the correct answer.
+
+STEP 3 — DISTRACTOR ANALYSIS (for each wrong option):
+  a) Why is this option wrong?
+  b) Is it: (i) contradicted by the passage, (ii) not mentioned, (iii) partially true but incomplete,
+     (iv) true but doesn't answer the question, (v) a trap using passage keywords out of context?
+  ${!isCorrect ? `d) The user chose "${userAnswer}" — what distractor trap did they fall into?` : ""}
+
+STEP 4 — STRATEGY COACHING:
+  What specific reading strategy would help with this question type?
+
+Respond ONLY with valid JSON:`;
 
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: "You are a certified PTE Academic examiner. Return only valid JSON." },
+      {
+        role: "system",
+        content:
+          "You are a certified PTE Academic examiner. Reason step by step, cite passage evidence, then return ONLY valid JSON.",
+      },
       { role: "user", content: prompt },
     ],
     response_format: {
@@ -242,36 +366,26 @@ Respond ONLY with valid JSON:
       json_schema: {
         name: "mcq_single_score",
         strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            taskType: { type: "string" },
-            overallScore: { type: "integer" },
-            rawScore: { type: "integer" },
-            maxRawScore: { type: "integer" },
-            correctAnswers: { type: "array", items: { type: "string" } },
-            userAnswers: { type: "array", items: { type: "string" } },
-            explanation: { type: "string" },
-            cefrLevel: { type: "string" },
-            overallFeedback: { type: "string" },
-            strengths: { type: "array", items: { type: "string" } },
-            improvements: { type: "array", items: { type: "string" } },
-            strategyTips: { type: "array", items: { type: "string" } },
-          },
-          required: ["taskType", "overallScore", "rawScore", "maxRawScore", "correctAnswers", "userAnswers", "explanation", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
-          additionalProperties: false,
-        },
+        schema: BASE_READING_SCHEMA,
       },
     },
   });
 
-  return JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+  const result = JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+
+  // Override scores with deterministic values
+  result.overallScore = pteScore;
+  result.rawScore = rawScore;
+  result.maxRawScore = 1;
+  result.cefrLevel = cefrLevel;
+  result.correctAnswers = [correctAnswer];
+  result.userAnswers = [userAnswer];
+
+  return result;
 }
 
-/**
- * Score Multiple Choice (Multiple Answers).
- * +1 for each correct option, -1 for each incorrect option. Minimum 0.
- */
+// ─── Multiple Choice Multiple Answers ────────────────────────────────────────
+
 export async function scoreMultipleChoiceMultiple(params: {
   passage: string;
   question: string;
@@ -281,9 +395,13 @@ export async function scoreMultipleChoiceMultiple(params: {
 }): Promise<ReadingScoreResult> {
   const { passage, question, options, correctAnswers, userAnswers } = params;
 
+  // Deterministic scoring: +1 correct, -1 incorrect, min 0
   let rawScore = 0;
+  const correctSet = new Set(correctAnswers.map(normalizeAnswer));
+  const userSet = new Set(userAnswers.map(normalizeAnswer));
+
   for (const ua of userAnswers) {
-    if (correctAnswers.some(ca => ca.toLowerCase().trim() === ua.toLowerCase().trim())) {
+    if (correctSet.has(normalizeAnswer(ua))) {
       rawScore += 1;
     } else {
       rawScore -= 1;
@@ -291,45 +409,60 @@ export async function scoreMultipleChoiceMultiple(params: {
   }
   rawScore = Math.max(0, rawScore);
   const maxRawScore = correctAnswers.length;
-  const pteScore = Math.round(10 + (rawScore / maxRawScore) * 80);
-  const cefrLevel = pteScore >= 85 ? "C2" : pteScore >= 76 ? "C1" : pteScore >= 59 ? "B2" : pteScore >= 43 ? "B1" : "A2";
+  const pteScore = computePTEScore(rawScore, maxRawScore);
+  const cefrLevel = computeCEFR(pteScore);
 
-  const prompt = `You are an expert PTE Academic examiner.
-Analyze this Multiple Choice (Multiple Answers) reading response.
+  // Classify each option
+  const optionAnalysis = options.map((o, i) => {
+    const isCorrectOption = correctSet.has(normalizeAnswer(o));
+    const userSelected = userSet.has(normalizeAnswer(o));
+    let status: string;
+    if (isCorrectOption && userSelected) status = "✓ Correct — selected";
+    else if (isCorrectOption && !userSelected) status = "✗ Correct — MISSED (should have selected)";
+    else if (!isCorrectOption && userSelected) status = "✗ Wrong — SELECTED (cost -1 point)";
+    else status = "✓ Wrong — not selected (correct decision)";
+    return `${String.fromCharCode(65 + i)}) ${o} → ${status}`;
+  });
 
+  const prompt = `You are a certified PTE Academic examiner.
+Analyze this Multiple Choice (Multiple Answers) reading response with CHAIN-OF-THOUGHT reasoning.
+
+═══ TASK INPUT ═══
 PASSAGE: "${passage}"
 QUESTION: "${question}"
-OPTIONS: ${options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join("; ")}
-CORRECT ANSWERS: [${correctAnswers.join(", ")}]
-USER ANSWERS: [${userAnswers.join(", ")}]
-SCORING: +1 correct, -1 incorrect, minimum 0
-RAW SCORE: ${rawScore}/${maxRawScore}
+OPTION ANALYSIS:
+${optionAnalysis.join("\n")}
+
+SCORE: ${rawScore}/${maxRawScore} (PTE: ${pteScore}, CEFR: ${cefrLevel})
+NEGATIVE MARKING: ${userAnswers.filter((ua) => !correctSet.has(normalizeAnswer(ua))).length} wrong selection(s) cost ${userAnswers.filter((ua) => !correctSet.has(normalizeAnswer(ua))).length} point(s).
 
 ${READING_SCORING_RULES}
 ${READING_STRATEGY_COACHING}
 
-Explain each option: why it is correct or incorrect, citing passage evidence.
-Note any negative marking penalties the user incurred.
+═══ CHAIN-OF-THOUGHT ANALYSIS INSTRUCTIONS ═══
 
-Respond ONLY with valid JSON:
-{
-  "taskType": "multiple_choice_multiple",
-  "overallScore": ${pteScore},
-  "rawScore": ${rawScore},
-  "maxRawScore": ${maxRawScore},
-  "correctAnswers": [${correctAnswers.map(a => `"${a}"`).join(", ")}],
-  "userAnswers": [${userAnswers.map(a => `"${a}"`).join(", ")}],
-  "explanation": "<explanation of each option with passage evidence>",
-  "cefrLevel": "${cefrLevel}",
-  "overallFeedback": "<assessment including negative marking strategy>",
-  "strengths": ["<what user got right>"],
-  "improvements": ["<what to avoid>", "<negative marking strategy>"],
-  "strategyTips": ["<tip about negative marking>", "<tip about eliminating distractors>"]
-}`;
+STEP 1 — FOR EACH OPTION, PROVIDE PASSAGE-GROUNDED ANALYSIS:
+  a) Is this option supported, contradicted, or not mentioned by the passage?
+  b) Quote the specific passage text that confirms or denies this option.
+  c) Explain why it is correct or incorrect.
+
+STEP 2 — NEGATIVE MARKING ANALYSIS:
+  Did the user incur negative marking penalties?
+  What led them to select incorrect options?
+  What distractor traps were present?
+
+STEP 3 — STRATEGY COACHING:
+  How should the user approach this question type to avoid negative marking?
+
+Respond ONLY with valid JSON:`;
 
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: "You are a certified PTE Academic examiner. Return only valid JSON." },
+      {
+        role: "system",
+        content:
+          "You are a certified PTE Academic examiner. Reason step by step, cite passage evidence, then return ONLY valid JSON.",
+      },
       { role: "user", content: prompt },
     ],
     response_format: {
@@ -337,36 +470,26 @@ Respond ONLY with valid JSON:
       json_schema: {
         name: "mcq_multiple_score",
         strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            taskType: { type: "string" },
-            overallScore: { type: "integer" },
-            rawScore: { type: "integer" },
-            maxRawScore: { type: "integer" },
-            correctAnswers: { type: "array", items: { type: "string" } },
-            userAnswers: { type: "array", items: { type: "string" } },
-            explanation: { type: "string" },
-            cefrLevel: { type: "string" },
-            overallFeedback: { type: "string" },
-            strengths: { type: "array", items: { type: "string" } },
-            improvements: { type: "array", items: { type: "string" } },
-            strategyTips: { type: "array", items: { type: "string" } },
-          },
-          required: ["taskType", "overallScore", "rawScore", "maxRawScore", "correctAnswers", "userAnswers", "explanation", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
-          additionalProperties: false,
-        },
+        schema: BASE_READING_SCHEMA,
       },
     },
   });
 
-  return JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+  const result = JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+
+  // Override scores
+  result.overallScore = pteScore;
+  result.rawScore = rawScore;
+  result.maxRawScore = maxRawScore;
+  result.cefrLevel = cefrLevel;
+  result.correctAnswers = correctAnswers;
+  result.userAnswers = userAnswers;
+
+  return result;
 }
 
-/**
- * Score Re-order Paragraphs.
- * 1 point per correctly ordered adjacent pair.
- */
+// ─── Re-order Paragraphs ──────────────────────────────────────────────────────
+
 export async function scoreReorderParagraphs(params: {
   paragraphs: Array<{ id: string; text: string }>;
   correctOrder: string[];
@@ -374,60 +497,76 @@ export async function scoreReorderParagraphs(params: {
 }): Promise<ReadingScoreResult> {
   const { paragraphs, correctOrder, userOrder } = params;
 
-  // Calculate adjacent pair score
-  let rawScore = 0;
-  for (let i = 0; i < userOrder.length - 1; i++) {
-    const userPair = `${userOrder[i]}-${userOrder[i + 1]}`;
-    for (let j = 0; j < correctOrder.length - 1; j++) {
-      if (`${correctOrder[j]}-${correctOrder[j + 1]}` === userPair) {
-        rawScore++;
-        break;
-      }
-    }
+  // Deterministic adjacent pair scoring
+  const rawScore = computeAdjacentPairScore(correctOrder, userOrder);
+  const maxRawScore = Math.max(0, correctOrder.length - 1);
+  const pteScore = computePTEScore(rawScore, maxRawScore);
+  const cefrLevel = computeCEFR(pteScore);
+
+  // Build pair analysis
+  const correctPairs = new Set<string>();
+  for (let i = 0; i < correctOrder.length - 1; i++) {
+    correctPairs.add(`${correctOrder[i]}|${correctOrder[i + 1]}`);
   }
-  const maxRawScore = correctOrder.length - 1;
-  const pteScore = Math.round(10 + (rawScore / maxRawScore) * 80);
-  const cefrLevel = pteScore >= 85 ? "C2" : pteScore >= 76 ? "C1" : pteScore >= 59 ? "B2" : pteScore >= 43 ? "B1" : "A2";
 
-  const paragraphTexts = paragraphs.map(p => `[${p.id}]: "${p.text.substring(0, 100)}..."`).join("\n");
+  const pairAnalysis = [];
+  for (let i = 0; i < userOrder.length - 1; i++) {
+    const pair = `${userOrder[i]}|${userOrder[i + 1]}`;
+    pairAnalysis.push(`(${userOrder[i]}→${userOrder[i + 1]}): ${correctPairs.has(pair) ? "✓ CORRECT pair" : "✗ WRONG pair"}`);
+  }
 
-  const prompt = `You are an expert PTE Academic examiner.
-Analyze this Re-order Paragraphs reading response.
+  const paragraphTexts = paragraphs
+    .map((p) => `[${p.id}]: "${p.text.substring(0, 150)}${p.text.length > 150 ? "..." : ""}"`)
+    .join("\n");
 
+  const prompt = `You are a certified PTE Academic examiner.
+Analyze this Re-order Paragraphs response with CHAIN-OF-THOUGHT reasoning.
+
+═══ TASK INPUT ═══
 PARAGRAPHS:
 ${paragraphTexts}
 
-CORRECT ORDER: [${correctOrder.join(" → ")}]
-USER ORDER: [${userOrder.join(" → ")}]
-ADJACENT PAIR SCORE: ${rawScore}/${maxRawScore}
+CORRECT ORDER: ${correctOrder.join(" → ")}
+USER ORDER: ${userOrder.join(" → ")}
+
+ADJACENT PAIR ANALYSIS:
+${pairAnalysis.join("\n")}
+
+SCORE: ${rawScore}/${maxRawScore} correct adjacent pairs (PTE: ${pteScore}, CEFR: ${cefrLevel})
 
 ${READING_SCORING_RULES}
 ${READING_STRATEGY_COACHING}
 
-Explain:
-1. Why the correct order is logical (discourse markers, pronoun references, topic flow).
-2. Which adjacent pairs the user got right and wrong.
-3. What clues in the text indicate the correct sequence.
+═══ CHAIN-OF-THOUGHT ANALYSIS INSTRUCTIONS ═══
 
-Respond ONLY with valid JSON:
-{
-  "taskType": "reorder_paragraphs",
-  "overallScore": ${pteScore},
-  "rawScore": ${rawScore},
-  "maxRawScore": ${maxRawScore},
-  "correctAnswers": [${correctOrder.map(o => `"${o}"`).join(", ")}],
-  "userAnswers": [${userOrder.map(o => `"${o}"`).join(", ")}],
-  "explanation": "<explanation of correct order with discourse clues>",
-  "cefrLevel": "${cefrLevel}",
-  "overallFeedback": "<assessment of text structure comprehension>",
-  "strengths": ["<correctly ordered pairs>"],
-  "improvements": ["<what clues were missed>"],
-  "strategyTips": ["<tip about discourse markers>", "<tip about pronoun references>"]
-}`;
+STEP 1 — CORRECT ORDER JUSTIFICATION:
+  For each consecutive pair in the CORRECT order, explain WHY they go together:
+  a) What discourse marker or connector links them?
+  b) What pronoun reference connects them? (e.g., "it", "this", "they" refers to something in the previous paragraph)
+  c) What logical relationship exists? (cause→effect, claim→example, general→specific, chronological)
+  d) Quote the specific words that create the link.
+
+STEP 2 — USER ERROR ANALYSIS:
+  For each WRONG pair in the user's order:
+  a) Why did this pair seem plausible?
+  b) What clue did the user miss that shows these paragraphs don't belong together?
+
+STEP 3 — INTRODUCTION AND CONCLUSION IDENTIFICATION:
+  Which paragraph is the introduction? (Look for: topic introduction, no pronoun references to preceding text)
+  Which paragraph is the conclusion? (Look for: summary language, "in conclusion", "overall", "therefore")
+
+STEP 4 — STRATEGY COACHING:
+  Provide specific tips for this particular text.
+
+Respond ONLY with valid JSON:`;
 
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: "You are a certified PTE Academic examiner. Return only valid JSON." },
+      {
+        role: "system",
+        content:
+          "You are a certified PTE Academic examiner. Reason step by step, cite specific text evidence, then return ONLY valid JSON.",
+      },
       { role: "user", content: prompt },
     ],
     response_format: {
@@ -435,35 +574,26 @@ Respond ONLY with valid JSON:
       json_schema: {
         name: "reorder_score",
         strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            taskType: { type: "string" },
-            overallScore: { type: "integer" },
-            rawScore: { type: "integer" },
-            maxRawScore: { type: "integer" },
-            correctAnswers: { type: "array", items: { type: "string" } },
-            userAnswers: { type: "array", items: { type: "string" } },
-            explanation: { type: "string" },
-            cefrLevel: { type: "string" },
-            overallFeedback: { type: "string" },
-            strengths: { type: "array", items: { type: "string" } },
-            improvements: { type: "array", items: { type: "string" } },
-            strategyTips: { type: "array", items: { type: "string" } },
-          },
-          required: ["taskType", "overallScore", "rawScore", "maxRawScore", "correctAnswers", "userAnswers", "explanation", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
-          additionalProperties: false,
-        },
+        schema: BASE_READING_SCHEMA,
       },
     },
   });
 
-  return JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+  const result = JSON.parse(response.choices[0].message.content as string) as ReadingScoreResult;
+
+  // Override scores
+  result.overallScore = pteScore;
+  result.rawScore = rawScore;
+  result.maxRawScore = maxRawScore;
+  result.cefrLevel = cefrLevel;
+  result.correctAnswers = correctOrder;
+  result.userAnswers = userOrder;
+
+  return result;
 }
 
-/**
- * Main dispatcher for reading tasks.
- */
+// ─── Main Dispatcher ──────────────────────────────────────────────────────────
+
 export async function scoreReadingTask(params: {
   taskType: string;
   passage?: string;
@@ -492,8 +622,12 @@ export async function scoreReadingTask(params: {
         passage: params.passage || "",
         question: params.question || "",
         options: params.options || [],
-        correctAnswer: (Array.isArray(params.correctAnswer) ? params.correctAnswer[0] : params.correctAnswer) || "",
-        userAnswer: (Array.isArray(params.userAnswer) ? params.userAnswer[0] : params.userAnswer) || "",
+        correctAnswer:
+          (Array.isArray(params.correctAnswer)
+            ? params.correctAnswer[0]
+            : params.correctAnswer) || "",
+        userAnswer:
+          (Array.isArray(params.userAnswer) ? params.userAnswer[0] : params.userAnswer) || "",
       });
 
     case "multiple_choice_multiple":
@@ -501,8 +635,12 @@ export async function scoreReadingTask(params: {
         passage: params.passage || "",
         question: params.question || "",
         options: params.options || [],
-        correctAnswers: Array.isArray(params.correctAnswer) ? params.correctAnswer : [params.correctAnswer || ""],
-        userAnswers: Array.isArray(params.userAnswer) ? params.userAnswer : [params.userAnswer || ""],
+        correctAnswers: Array.isArray(params.correctAnswer)
+          ? params.correctAnswer
+          : [params.correctAnswer || ""],
+        userAnswers: Array.isArray(params.userAnswer)
+          ? params.userAnswer
+          : [params.userAnswer || ""],
       });
 
     case "reorder_paragraphs":
@@ -517,8 +655,12 @@ export async function scoreReadingTask(params: {
         passage: params.passage || "",
         question: params.question || "",
         options: params.options || [],
-        correctAnswer: (Array.isArray(params.correctAnswer) ? params.correctAnswer[0] : params.correctAnswer) || "",
-        userAnswer: (Array.isArray(params.userAnswer) ? params.userAnswer[0] : params.userAnswer) || "",
+        correctAnswer:
+          (Array.isArray(params.correctAnswer)
+            ? params.correctAnswer[0]
+            : params.correctAnswer) || "",
+        userAnswer:
+          (Array.isArray(params.userAnswer) ? params.userAnswer[0] : params.userAnswer) || "",
       });
   }
 }

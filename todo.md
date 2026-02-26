@@ -225,3 +225,12 @@
 - [x] AI scoring triggered automatically after submit (non-blocking, merges into result)
 - [x] 13 calibration tests in server/ai/aiEngines.test.ts
 - [x] All 84 tests passing, 0 TypeScript errors
+
+## Phase 10 — High-Accuracy AI Engine Rebuild (COMPLETED)
+- [x] Researched official PTE Academic Score Guide v21 (Nov 2024) + PTE Scoring Info for Partners (2024)
+- [x] Rebuilt Speaking AI engine with chain-of-thought, deterministic pre-processing, 6-level calibration, phoneme analysis, IPA notation
+- [x] Rebuilt Writing AI engine with criterion-by-criterion reasoning, deterministic Form/Spelling overrides, 6-level model answer tiers
+- [x] Rebuilt Reading AI engine with passage-grounded explanations, distractor classification, adjacent pair scoring for Reorder Paragraphs
+- [x] Rebuilt Listening AI engine with Levenshtein error classification (spelling/hearing/missing), phonetic confusion analysis, deterministic SST trait overrides
+- [x] Fixed test isolation: vi.clearAllMocks() → vi.resetAllMocks() in all beforeEach blocks
+- [x] All 84 tests passing, 0 TypeScript errors
