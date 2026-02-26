@@ -25,9 +25,20 @@ interface TaskResult {
   pronunciationFeedback?: string;
   fluencyFeedback?: string;
   grammarErrors?: string[];
+  vocabularyFeedback?: string;
   isCorrect?: boolean;
-  transcription?: string;  // Whisper transcription returned from server
+  transcription?: string;
   timeTaken?: number;
+  // Enhanced AI scoring fields
+  cefrLevel?: string;
+  wordLevelFeedback?: string;
+  modelAnswer?: string;
+  strategyTips?: string[];
+  traits?: Record<string, { score: number; maxScore: number; feedback: string }>;
+  rawScore?: number;
+  maxRawScore?: number;
+  wordCount?: number;
+  explanation?: string;
 }
 
 // ── Repeat Sentence TTS Auto-play ───────────────────────────────────────────
@@ -268,18 +279,57 @@ function AudioRecorder({ onRecordingComplete, preparationTime = 0 }: {
   );
 }
 
+// Trait score bar component
+function TraitBar({ label, score, maxScore, feedback, color = "blue" }: {
+  label: string; score: number; maxScore: number; feedback: string; color?: string;
+}) {
+  const pct = Math.round((score / maxScore) * 100);
+  const colorMap: Record<string, string> = {
+    blue: "bg-blue-500", green: "bg-green-500", purple: "bg-purple-500",
+    orange: "bg-orange-500", teal: "bg-teal-500", red: "bg-red-500",
+  };
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">{label}</span>
+        <span className="text-xs font-mono text-muted-foreground">{score}/{maxScore}</span>
+      </div>
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${colorMap[color] || colorMap.blue}`} style={{ width: `${pct}%` }} />
+      </div>
+      {feedback && <p className="text-xs text-muted-foreground leading-snug">{feedback}</p>}
+    </div>
+  );
+}
+
 // Score display component
 function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: string }) {
   const isSpeaking = ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question"].includes(taskType);
   const isObjective = ["multiple_choice_single", "multiple_choice_multiple", "reorder_paragraphs",
     "fill_blanks_reading", "fill_blanks_rw", "highlight_correct_summary", "select_missing_word",
     "highlight_incorrect_words", "write_from_dictation"].includes(taskType);
+  const isWriting = ["write_essay", "summarize_written_text"].includes(taskType);
+  const isListening = ["summarize_spoken_text", "write_from_dictation", "highlight_correct_summary", "fill_blanks_listening"].includes(taskType);
+
+  // Trait color mapping
+  const traitColors: Record<string, string> = {
+    pronunciation: "blue", oralFluency: "purple", content: "green",
+    form: "teal", grammar: "orange", vocabulary: "blue", development: "purple",
+    linguisticRange: "teal", spelling: "red",
+  };
+  const traitLabels: Record<string, string> = {
+    pronunciation: "Pronunciation", oralFluency: "Oral Fluency", content: "Content",
+    form: "Form", grammar: "Grammar", vocabulary: "Vocabulary", development: "Development",
+    linguisticRange: "Linguistic Range", spelling: "Spelling",
+  };
+
+  const hasTraits = result.traits && Object.keys(result.traits).length > 0;
 
   return (
     <div className="space-y-4">
-      {/* Score circle */}
+      {/* Score header */}
       <div className="text-center py-4">
-        {isObjective ? (
+        {isObjective && !result.normalizedScore ? (
           <div className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-lg font-bold ${
             result.isCorrect ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
           }`}>
@@ -287,19 +337,54 @@ function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: stri
             {result.isCorrect ? "Correct!" : "Incorrect"}
           </div>
         ) : (
-          <div>
-            <div className="text-5xl font-extrabold text-foreground mb-1">
+          <div className="flex flex-col items-center gap-1">
+            <div className="text-5xl font-extrabold text-foreground">
               {result.normalizedScore ?? "—"}
             </div>
-            <div className="text-sm text-muted-foreground">Score (10–90 scale)</div>
+            <div className="text-sm text-muted-foreground">PTE Score (10–90)</div>
+            {result.cefrLevel && (
+              <span className="mt-1 px-3 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-full">
+                CEFR {result.cefrLevel}
+              </span>
+            )}
+            {result.rawScore !== undefined && result.maxRawScore !== undefined && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Raw: {result.rawScore}/{result.maxRawScore} points
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Trait breakdown */}
+      {hasTraits && (
+        <div className="bg-muted/30 rounded-xl p-4 space-y-3">
+          <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">Score Breakdown</h4>
+          {Object.entries(result.traits!).map(([key, trait]) => (
+            <TraitBar
+              key={key}
+              label={traitLabels[key] || key}
+              score={trait.score}
+              maxScore={trait.maxScore}
+              feedback={trait.feedback}
+              color={traitColors[key] || "blue"}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Feedback */}
       {result.feedback && (
         <div className="bg-muted/50 rounded-xl p-4">
           <p className="text-sm text-foreground leading-relaxed">{result.feedback}</p>
+        </div>
+      )}
+
+      {/* Explanation for objective tasks */}
+      {result.explanation && (
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+          <p className="text-xs font-semibold text-blue-700 mb-1">Why this answer?</p>
+          <p className="text-xs text-blue-600 leading-relaxed">{result.explanation}</p>
         </div>
       )}
 
@@ -333,8 +418,31 @@ function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: stri
         )}
       </div>
 
+      {/* Strategy tips */}
+      {result.strategyTips && result.strategyTips.length > 0 && (
+        <div className="bg-teal-50 border border-teal-100 rounded-xl p-4">
+          <p className="text-xs font-semibold text-teal-700 mb-2 flex items-center gap-1.5">
+            <Brain className="w-3.5 h-3.5" />
+            Strategy Tips
+          </p>
+          <ul className="space-y-1">
+            {result.strategyTips.map((t, i) => (
+              <li key={i} className="text-xs text-teal-700">• {t}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Model answer */}
+      {result.modelAnswer && (
+        <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
+          <p className="text-xs font-semibold text-purple-700 mb-2">Model Answer (C1 level)</p>
+          <p className="text-xs text-purple-700 leading-relaxed italic">{result.modelAnswer}</p>
+        </div>
+      )}
+
       {/* Speaking-specific feedback */}
-      {isSpeaking && (result.pronunciationFeedback || result.fluencyFeedback) && (
+      {isSpeaking && !hasTraits && (result.pronunciationFeedback || result.fluencyFeedback) && (
         <div className="space-y-2">
           {result.pronunciationFeedback && (
             <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
@@ -362,6 +470,14 @@ function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: stri
           </ul>
         </div>
       )}
+
+      {/* Vocabulary feedback */}
+      {result.vocabularyFeedback && (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+          <p className="text-xs font-semibold text-indigo-700 mb-1">Vocabulary</p>
+          <p className="text-xs text-indigo-600">{result.vocabularyFeedback}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -383,6 +499,11 @@ export default function PracticeSession() {
 
   const submitResponse = trpc.responses.submit.useMutation();
   const completeSession = trpc.sessions.complete.useMutation();
+  const aiScoreSpeak = trpc.aiScoring.scoreSpeak.useMutation();
+  const aiScoreWrite = trpc.aiScoring.scoreWrite.useMutation();
+  const aiScoreRead = trpc.aiScoring.scoreRead.useMutation();
+  const aiScoreListen = trpc.aiScoring.scoreListen.useMutation();
+  const [isAIScoring, setIsAIScoring] = useState(false);
 
   const [textResponse, setTextResponse] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
@@ -451,14 +572,51 @@ export default function PracticeSession() {
 
       const taskResult = response as TaskResult;
       setResult(taskResult);
-
       // Capture Whisper transcription for word-level analysis
       if (taskResult.transcription) {
         setSpeakingTranscription(taskResult.transcription);
       }
-
       // Complete session
       await completeSession.mutateAsync({ id: sessionId });
+      // Trigger section-specific AI scoring in the background
+      if (taskResult.responseId && question) {
+        setIsAIScoring(true);
+        try {
+          let aiResult: TaskResult | null = null;
+          if (isSpeakingTask) {
+            aiResult = await aiScoreSpeak.mutateAsync({
+              responseId: taskResult.responseId,
+              audioUrl: audioUrl,
+              transcription: taskResult.transcription,
+            }) as unknown as TaskResult;
+          } else if (isWritingTask) {
+            aiResult = await aiScoreWrite.mutateAsync({
+              responseId: taskResult.responseId,
+              responseText: textResponse || undefined,
+            }) as unknown as TaskResult;
+          } else if (question.section === "reading") {
+            aiResult = await aiScoreRead.mutateAsync({
+              responseId: taskResult.responseId,
+              selectedOptions: selectedOptions.length > 0 ? selectedOptions : undefined,
+              orderedItems: arrangedItems.length > 0 ? arrangedItems.map(i => i.id) : undefined,
+            }) as unknown as TaskResult;
+          } else if (question.section === "listening") {
+            aiResult = await aiScoreListen.mutateAsync({
+              responseId: taskResult.responseId,
+              responseText: textResponse || undefined,
+              selectedOptions: selectedOptions.length > 0 ? selectedOptions : undefined,
+            }) as unknown as TaskResult;
+          }
+          if (aiResult) {
+            // Merge AI result into the existing task result
+            setResult(prev => prev ? { ...prev, ...aiResult } : aiResult);
+          }
+        } catch (aiErr) {
+          console.error("AI scoring failed (non-critical):", aiErr);
+        } finally {
+          setIsAIScoring(false);
+        }
+      }
     } catch (err) {
       toast.error("Failed to submit response. Please try again.");
     } finally {
@@ -742,6 +900,13 @@ export default function PracticeSession() {
 
             {/* Result display */}
             {result && <ScoreDisplay result={result} taskType={question.taskType} />}
+            {/* AI scoring loading indicator */}
+            {isAIScoring && (
+              <div className="flex items-center gap-2 mt-3 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-xl">
+                <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                <span className="text-xs text-primary font-medium">Analysing with section-specific AI engine…</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -191,3 +191,37 @@
 - [x] Links to all 4 official free Pearson resources (PDF + web)
 - [x] Repeat Sentence TTS auto-play component added to PracticeSession
 - [x] All 71 tests passing, 0 TypeScript errors
+
+## Phase 9 — Section-Specific AI Scoring Engines (COMPLETED)
+- [x] Research official PTE Academic Score Guide v21 (Nov 2024) — downloaded and extracted
+- [x] Collected native speaker reference responses at B1, B2, C1, C2 CEFR levels
+- [x] Built Speaking AI engine (server/ai/speakingAI.ts) with task-specific rubrics
+  - [x] Read Aloud: Pronunciation (0-5) + Oral Fluency (0-5) + Content (0-5)
+  - [x] Repeat Sentence: Pronunciation (0-5) + Oral Fluency (0-5) + Content (0-5)
+  - [x] Describe Image: Pronunciation (0-5) + Oral Fluency (0-5) + Content (0-5)
+  - [x] Re-tell Lecture: Pronunciation (0-5) + Oral Fluency (0-5) + Content (0-5)
+  - [x] Answer Short Question: vocabulary knowledge, accuracy
+  - [x] Multi-level calibration anchors (B1/B2/C1/C2) with native speaker examples
+  - [x] Word-level pronunciation feedback with IPA notation
+- [x] Built Writing AI engine (server/ai/writingAI.ts) with task-specific rubrics
+  - [x] Summarize Written Text: Content 2, Form 2, Grammar 2, Vocabulary 2, Spelling 2 = 10 pts
+  - [x] Write Essay: Content 3, Form 2, Grammar 2, Vocabulary 2, Spelling 1, Development 2, Linguistic Range 2, Coherence 2, Discourse 2 = 18 pts
+  - [x] Multi-level calibration anchors with model answers at B1, B2, C1, C2
+- [x] Built Reading AI engine (server/ai/readingAI.ts) with explanation engine
+  - [x] Objective scoring for all 8 reading task types
+  - [x] AI-generated explanations for correct/incorrect answers
+  - [x] Distractor analysis for MCQ tasks
+- [x] Built Listening AI engine (server/ai/listeningAI.ts) with transcription scoring
+  - [x] Write from Dictation: deterministic word-by-word matching (overrides LLM)
+  - [x] Summarize Spoken Text: 5 traits (Content, Form, Grammar, Vocabulary, Spelling)
+  - [x] Highlight Correct Summary: correct/incorrect with explanation
+  - [x] Fill in Blanks: partial credit per correct word
+- [x] Created AI Scoring Router (server/routers/aiScoringRouter.ts) with 5 tRPC procedures
+- [x] Registered aiScoringRouter in main routers.ts
+- [x] Updated TaskResult interface with enhanced fields (cefrLevel, traits, strategyTips, modelAnswer)
+- [x] Added TraitBar component for visual score breakdown with colour-coded bars
+- [x] Enhanced ScoreDisplay: trait bars, CEFR badge, strategy tips, model answer, vocabulary feedback
+- [x] Added AI scoring loading indicator ("Analysing with section-specific AI engine...")
+- [x] AI scoring triggered automatically after submit (non-blocking, merges into result)
+- [x] 13 calibration tests in server/ai/aiEngines.test.ts
+- [x] All 84 tests passing, 0 TypeScript errors
