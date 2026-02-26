@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it } from "vitest";
 import { normalizeToPTE, scoreObjectiveTask } from "./scoring";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
@@ -25,7 +25,7 @@ describe("normalizeToPTE", () => {
     expect(normalizeToPTE(110)).toBe(90);
   });
 
-  it("maps 75% to expected PTE range (60–70)", () => {
+  it("maps 75% to expected PTE range (60–90)", () => {
     const score = normalizeToPTE(75);
     expect(score).toBeGreaterThanOrEqual(60);
     expect(score).toBeLessThanOrEqual(90);
@@ -35,36 +35,33 @@ describe("normalizeToPTE", () => {
 // ─── scoreObjectiveTask ───────────────────────────────────────────────────────
 describe("scoreObjectiveTask", () => {
   describe("multiple_choice_single", () => {
-    it("returns isCorrect=true when selected option matches correctAnswer", () => {
+    it("returns score=100 when selected option matches correctAnswer", () => {
       const result = scoreObjectiveTask({
         taskType: "multiple_choice_single",
         correctAnswer: "b",
-        selectedOptions: ["b"],
-        responseText: undefined,
+        userAnswer: ["b"],
       });
-      expect(result.isCorrect).toBe(true);
-      expect(result.totalScore).toBeGreaterThan(0);
+      expect(result.score).toBe(100);
+      expect(result.normalizedScore).toBeGreaterThan(0);
     });
 
-    it("returns isCorrect=false when selected option is wrong", () => {
+    it("returns score=0 when selected option is wrong", () => {
       const result = scoreObjectiveTask({
         taskType: "multiple_choice_single",
         correctAnswer: "b",
-        selectedOptions: ["a"],
-        responseText: undefined,
+        userAnswer: ["a"],
       });
-      expect(result.isCorrect).toBe(false);
-      expect(result.totalScore).toBe(0);
+      expect(result.score).toBe(0);
+      expect(result.normalizedScore).toBeLessThanOrEqual(30);
     });
 
-    it("returns isCorrect=false when no option selected", () => {
+    it("returns score=0 when no option selected", () => {
       const result = scoreObjectiveTask({
         taskType: "multiple_choice_single",
         correctAnswer: "b",
-        selectedOptions: [],
-        responseText: undefined,
+        userAnswer: [],
       });
-      expect(result.isCorrect).toBe(false);
+      expect(result.score).toBe(0);
     });
   });
 
@@ -73,10 +70,9 @@ describe("scoreObjectiveTask", () => {
       const result = scoreObjectiveTask({
         taskType: "write_from_dictation",
         correctAnswer: "the quick brown fox",
-        selectedOptions: undefined,
-        responseText: "the quick brown fox",
+        userAnswer: "the quick brown fox",
       });
-      expect(result.isCorrect).toBe(true);
+      expect(result.score).toBe(100);
       expect(result.normalizedScore).toBeGreaterThanOrEqual(70);
     });
 
@@ -84,8 +80,7 @@ describe("scoreObjectiveTask", () => {
       const result = scoreObjectiveTask({
         taskType: "write_from_dictation",
         correctAnswer: "the quick brown fox jumps over the lazy dog",
-        selectedOptions: undefined,
-        responseText: "the quick brown fox",
+        userAnswer: "the quick brown fox",
       });
       expect(result.normalizedScore).toBeGreaterThan(10);
       expect(result.normalizedScore).toBeLessThan(90);
@@ -95,8 +90,7 @@ describe("scoreObjectiveTask", () => {
       const result = scoreObjectiveTask({
         taskType: "write_from_dictation",
         correctAnswer: "the quick brown fox",
-        selectedOptions: undefined,
-        responseText: "",
+        userAnswer: "",
       });
       expect(result.normalizedScore).toBeLessThanOrEqual(20);
     });
@@ -106,9 +100,8 @@ describe("scoreObjectiveTask", () => {
     it("awards partial credit for partially correct order", () => {
       const result = scoreObjectiveTask({
         taskType: "reorder_paragraphs",
-        correctAnswer: JSON.stringify(["p1", "p2", "p3", "p4"]),
-        selectedOptions: ["p1", "p2", "p4", "p3"],
-        responseText: undefined,
+        correctAnswer: ["p1", "p2", "p3", "p4"],
+        userAnswer: ["p1", "p2", "p4", "p3"],
       });
       expect(result.normalizedScore).toBeGreaterThan(10);
       expect(result.normalizedScore).toBeLessThan(90);
@@ -117,23 +110,30 @@ describe("scoreObjectiveTask", () => {
     it("awards maximum credit for fully correct order", () => {
       const result = scoreObjectiveTask({
         taskType: "reorder_paragraphs",
-        correctAnswer: JSON.stringify(["p1", "p2", "p3"]),
-        selectedOptions: ["p1", "p2", "p3"],
-        responseText: undefined,
+        correctAnswer: ["p1", "p2", "p3"],
+        userAnswer: ["p1", "p2", "p3"],
       });
-      expect(result.isCorrect).toBe(true);
+      expect(result.score).toBe(100);
     });
   });
 
   describe("highlight_incorrect_words", () => {
-    it("scores correctly identified incorrect words", () => {
+    it("scores correctly identified incorrect words as 100", () => {
       const result = scoreObjectiveTask({
         taskType: "highlight_incorrect_words",
-        correctAnswer: JSON.stringify(["word1", "word3"]),
-        selectedOptions: ["word1", "word3"],
-        responseText: undefined,
+        correctAnswer: ["word1", "word3"],
+        userAnswer: ["word1", "word3"],
       });
-      expect(result.isCorrect).toBe(true);
+      expect(result.score).toBe(100);
+    });
+
+    it("penalises false positives", () => {
+      const result = scoreObjectiveTask({
+        taskType: "highlight_incorrect_words",
+        correctAnswer: ["word1"],
+        userAnswer: ["word1", "word2", "word3"],
+      });
+      expect(result.score).toBeLessThan(100);
     });
   });
 
@@ -151,8 +151,7 @@ describe("scoreObjectiveTask", () => {
         const result = scoreObjectiveTask({
           taskType,
           correctAnswer: "a",
-          selectedOptions: ["a"],
-          responseText: undefined,
+          userAnswer: ["a"],
         });
         expect(result.normalizedScore).toBeGreaterThanOrEqual(10);
         expect(result.normalizedScore).toBeLessThanOrEqual(90);
@@ -195,7 +194,6 @@ describe("questions.list", () => {
       res: {} as TrpcContext["res"],
     };
     const caller = appRouter.createCaller(ctx);
-    // Should not throw — returns empty array when DB is unavailable
     const result = await caller.questions.list({});
     expect(Array.isArray(result)).toBe(true);
   });

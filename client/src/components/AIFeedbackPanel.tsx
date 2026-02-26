@@ -13,7 +13,14 @@ interface AIFeedbackPanelProps {
   onClose?: () => void;
 }
 
-const BAND_COLORS = {
+const BAND_COLORS: Record<string, string> = {
+  "Expert (90)": "text-emerald-700 bg-emerald-50 border-emerald-200",
+  "Very Good (79-89)": "text-blue-700 bg-blue-50 border-blue-200",
+  "Good (65-78)": "text-teal-700 bg-teal-50 border-teal-200",
+  "Competent (50-64)": "text-amber-700 bg-amber-50 border-amber-200",
+  "Modest (36-49)": "text-orange-700 bg-orange-50 border-orange-200",
+  "Limited (10-35)": "text-red-700 bg-red-50 border-red-200",
+  // Legacy
   "Excellent": "text-emerald-700 bg-emerald-50 border-emerald-200",
   "Good": "text-blue-700 bg-blue-50 border-blue-200",
   "Satisfactory": "text-amber-700 bg-amber-50 border-amber-200",
@@ -21,7 +28,8 @@ const BAND_COLORS = {
   "Poor": "text-red-700 bg-red-50 border-red-200",
 };
 
-const PRIORITY_COLORS = {
+const PRIORITY_COLORS: Record<string, string> = {
+  critical: "bg-purple-100 text-purple-700 border-purple-200",
   high: "bg-red-100 text-red-700 border-red-200",
   medium: "bg-amber-100 text-amber-700 border-amber-200",
   low: "bg-green-100 text-green-700 border-green-200",
@@ -251,8 +259,8 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
               )}
             </div>
 
-            {/* Model Answer */}
-            {feedback.modelAnswer && (
+            {/* Model Answers (Band 65 / 79 / 90) */}
+            {feedback.modelAnswers && feedback.modelAnswers.length > 0 && (
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <button
                   onClick={() => toggle("model")}
@@ -260,15 +268,21 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                 >
                   <div className="flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-purple-500" />
-                    <span className="font-semibold text-sm text-gray-800">Model Answer</span>
+                    <span className="font-semibold text-sm text-gray-800">Model Answers (Band 65 / 79 / 90)</span>
                   </div>
                   {expanded.model ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                 </button>
                 {expanded.model && (
-                  <div className="p-4">
-                    <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{feedback.modelAnswer}</p>
-                    </div>
+                  <div className="p-4 space-y-3">
+                    {feedback.modelAnswers.map((ma, i) => (
+                      <div key={i} className="bg-purple-50 border border-purple-100 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-200 text-purple-800">Band {ma.band}</span>
+                        </div>
+                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap mb-2">{ma.response}</p>
+                        <p className="text-xs text-purple-600 italic">{ma.commentary}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

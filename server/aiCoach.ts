@@ -1,17 +1,27 @@
 /**
- * AI Coaching Engine - Personalized feedback and suggestions for each PTE task type
- * Uses LLM to generate task-specific coaching, improvement strategies, and learning paths
+ * AI Coaching Engine v2 — PTE Academic Aligned
+ * Rebuilt with:
+ * - Official PTE scoring rubrics per task type
+ * - Few-shot calibration examples at each band level
+ * - Chain-of-thought reasoning before feedback generation
+ * - Structured JSON output with strict validation
+ * - Task-specific error pattern recognition
+ * - Model answer generation at band 65, 79, and 90
  */
 import { invokeLLM } from "./_core/llm";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERFACES
+// ─────────────────────────────────────────────────────────────────────────────
 export interface TaskFeedback {
   taskType: string;
-  overallBand: "Excellent" | "Good" | "Satisfactory" | "Needs Improvement" | "Poor";
+  overallBand: "Expert (90)" | "Very Good (79-89)" | "Good (65-78)" | "Competent (50-64)" | "Modest (36-49)" | "Limited (10-35)";
   scoreBreakdown: {
     criterion: string;
     score: number; // 0-5
     maxScore: number;
     comment: string;
+    pteBandEquivalent: string; // e.g. "Good (65-78)"
   }[];
   detailedFeedback: string;
   specificErrors: {
@@ -19,16 +29,23 @@ export interface TaskFeedback {
     example: string;
     correction: string;
     explanation: string;
+    impactOnScore: "high" | "medium" | "low";
   }[];
-  modelAnswer?: string;
+  modelAnswers: {
+    band: "65" | "79" | "90";
+    response: string;
+    commentary: string;
+  }[];
   improvementTips: {
-    priority: "high" | "medium" | "low";
+    priority: "critical" | "high" | "medium" | "low";
     skill: string;
     tip: string;
     practiceExercise: string;
+    expectedImpact: string; // e.g. "+5-8 points in Pronunciation"
   }[];
   nextSteps: string[];
   estimatedScoreRange: { min: number; max: number };
+  reasoning: string; // chain-of-thought
 }
 
 export interface PersonalizedCoachingPlan {
@@ -36,11 +53,15 @@ export interface PersonalizedCoachingPlan {
   overallAssessment: string;
   targetScore: number;
   currentEstimatedScore: number;
+  scoreGap: number;
+  estimatedWeeksToTarget: number;
   weeklyPlan: {
     week: number;
+    theme: string;
     focus: string;
     tasks: string[];
     targetImprovement: string;
+    checkpointGoal: string;
   }[];
   skillGaps: {
     skill: string;
@@ -48,307 +69,414 @@ export interface PersonalizedCoachingPlan {
     targetLevel: number;
     gap: number;
     priority: "critical" | "important" | "nice-to-have";
+    rootCause: string;
     resources: string[];
+    practiceFrequency: string;
   }[];
   dailyPracticeRecommendation: {
     totalMinutes: number;
-    breakdown: { activity: string; minutes: number; frequency: string }[];
+    breakdown: { activity: string; minutes: number; frequency: string; rationale: string }[];
   };
+  quickWins: string[]; // tasks where small effort = big score gain
   motivationalMessage: string;
 }
 
-// Task-specific system prompts for maximum accuracy
+// ─────────────────────────────────────────────────────────────────────────────
+// PTE BAND REFERENCE (shared across all coaching prompts)
+// ─────────────────────────────────────────────────────────────────────────────
+const PTE_BAND_REFERENCE = `
+PTE Academic Score Bands:
+- 90 (Expert): Fully operational. Accurate, fluent, complete. No errors.
+- 79-89 (Very Good): Effective command. Occasional minor inaccuracies. Task fully addressed.
+- 65-78 (Good): Generally effective. Mix of simple/complex. Some errors but meaning clear.
+- 50-64 (Competent): Partial command. Errors noticeable but communication maintained.
+- 36-49 (Modest): Intermittent command. Frequent errors affecting clarity.
+- 10-35 (Limited): Extremely limited. Errors dominate. Task largely unmet.
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TASK-SPECIFIC COACHING PROMPTS (v2 — with rubrics and error patterns)
+// ─────────────────────────────────────────────────────────────────────────────
 const TASK_COACHING_PROMPTS: Record<string, string> = {
-  read_aloud: `You are an expert PTE Academic Read Aloud evaluator and coach. 
-Evaluate the student's reading performance focusing on:
-- CONTENT (0-5): All words read correctly, no omissions or substitutions
-- PRONUNCIATION (0-5): Clear articulation, correct phoneme production, word stress
-- ORAL FLUENCY (0-5): Natural rhythm, appropriate pace (130-160 wpm), smooth delivery, minimal hesitations
-- INTONATION (0-5): Appropriate rise/fall patterns, sentence stress on content words
+  read_aloud: `You are an expert PTE Academic Read Aloud evaluator with deep knowledge of English phonology and the official PTE scoring rubric.
 
-Common errors to check:
-- Mispronounced academic/technical vocabulary
-- Incorrect word stress (e.g., "reCORD" vs "REcord")
-- Monotone delivery lacking natural intonation
-- Excessive pausing at commas/periods
-- Skipping or adding words
-- Rushing through difficult phrases`,
+${PTE_BAND_REFERENCE}
 
-  repeat_sentence: `You are an expert PTE Academic Repeat Sentence evaluator and coach.
-Evaluate focusing on:
-- CONTENT (0-5): Exact words reproduced, correct order, no additions/omissions
-- PRONUNCIATION (0-5): Clear and accurate phoneme production
-- ORAL FLUENCY (0-5): Natural connected speech, appropriate pace
+OFFICIAL READ ALOUD SCORING RUBRIC:
+- CONTENT (0-5): Proportion of words from the original text spoken correctly
+  5 = All words correct | 4 = 1-2 minor errors | 3 = 3-5 errors | 2 = 6-10 errors | 1 = >10 errors | 0 = Unrecognisable
+- PRONUNCIATION (0-5): Clarity and accuracy of phoneme production
+  5 = Native-like, all phonemes clear, correct stress | 4 = Mostly clear, minor accent | 3 = Some unclear phonemes | 2 = Frequently unclear | 1 = Largely unintelligible | 0 = Cannot be understood
+- ORAL FLUENCY (0-5): Natural rhythm, pace (ideal: 120-160 wpm), smooth delivery
+  5 = Completely natural | 4 = Minor hesitations | 3 = Noticeable hesitations | 2 = Frequent pauses | 1 = Very choppy | 0 = Extremely disfluent
 
-Key coaching points:
-- Chunking strategy: group words into meaningful phrases
-- Memory techniques: focus on key content words first
-- Pronunciation of function words (reduced forms: "gonna", "wanna" are NOT appropriate)
-- Handling long sentences: identify the core subject-verb-object first`,
+COMMON READ ALOUD ERRORS TO IDENTIFY:
+1. Incorrect word stress (e.g., "REsearch" instead of "reSEARCH" as a verb)
+2. Mispronounced academic vocabulary (e.g., "epitome" pronounced as "epi-TOME")
+3. Monotone delivery lacking sentence stress on content words
+4. Excessive pausing at every comma
+5. Rushing through difficult phrases
+6. Omitting or substituting words
+7. Adding filler words (um, uh, like)
+8. Incorrect vowel sounds in unstressed syllables`,
 
-  describe_image: `You are an expert PTE Academic Describe Image evaluator and coach.
-Evaluate focusing on:
-- CONTENT (0-5): Describes main features, trends, comparisons, key data points
-- ORAL FLUENCY (0-5): Smooth delivery, appropriate pace, minimal hesitations
+  repeat_sentence: `You are an expert PTE Academic Repeat Sentence evaluator.
+
+${PTE_BAND_REFERENCE}
+
+OFFICIAL REPEAT SENTENCE SCORING RUBRIC:
+- CONTENT (0-5): Accuracy of reproduction (exact words, correct order)
+  5 = Perfect reproduction | 4 = 1 word changed/missing | 3 = 2-3 changes | 2 = Only fragments correct | 1 = Barely recognisable | 0 = Unrecognisable
+- PRONUNCIATION (0-5): Clarity of phoneme production
+- ORAL FLUENCY (0-5): Connected speech, natural pace, no unnatural pausing
+
+CHUNKING STRATEGY ASSESSMENT:
+- Did the student use meaningful phrase chunks? (e.g., "students who participate / in extracurricular activities / tend to develop")
+- Were function words (articles, prepositions) retained?
+- Was sentence-final intonation appropriate?
+
+COMMON ERRORS:
+1. Dropping function words (articles, prepositions, auxiliaries)
+2. Changing word order
+3. Substituting synonyms (acceptable in meaning but penalised in PTE)
+4. Losing the end of long sentences (recency effect)
+5. Unnatural pausing between chunks`,
+
+  describe_image: `You are an expert PTE Academic Describe Image evaluator.
+
+${PTE_BAND_REFERENCE}
+
+OFFICIAL DESCRIBE IMAGE SCORING RUBRIC:
+- CONTENT (0-5): Coverage of key visual elements
+  5 = All main features, trends, data, comparisons, and conclusion | 4 = Most features with specific data | 3 = Some features, misses trends | 2 = Only superficial | 1 = Minimal | 0 = Off-topic
+- ORAL FLUENCY (0-5): Smooth delivery within 40 seconds
 - PRONUNCIATION (0-5): Clear articulation of numbers, percentages, technical terms
 
-Structure to evaluate:
-1. Introduction (what the image shows)
-2. Main trends/features (specific data with numbers)
-3. Comparisons and contrasts
-4. Conclusion/summary
+IDEAL DESCRIBE IMAGE STRUCTURE (40 seconds):
+1. Introduction (5s): "This [chart/graph/diagram] shows/illustrates..."
+2. Main trend/feature (15s): Highest/lowest values with specific numbers
+3. Comparison (10s): Contrast between categories or time periods
+4. Conclusion (10s): Overall trend or key takeaway
 
-Common errors:
-- Only describing one aspect while ignoring others
-- Not mentioning specific numbers/percentages
-- Using vague language ("it went up") instead of precise language ("increased by 15%")
-- Poor time management (spending too long on one element)`,
+COMMON ERRORS:
+1. Not mentioning specific numbers or percentages
+2. Only describing one aspect (e.g., only the highest bar)
+3. Using vague language ("it went up") instead of precise language ("increased by 15%")
+4. Running out of time before concluding
+5. Describing what the image IS rather than what it SHOWS
+6. Poor pronunciation of numbers (e.g., "fifteen percent" vs "fifty percent")`,
 
-  retell_lecture: `You are an expert PTE Academic Re-tell Lecture evaluator and coach.
-Evaluate focusing on:
-- CONTENT (0-5): Main topic, key points, supporting details, logical structure
-- ORAL FLUENCY (0-5): Natural delivery, appropriate pace
-- PRONUNCIATION (0-5): Clear articulation of academic vocabulary
+  retell_lecture: `You are an expert PTE Academic Re-tell Lecture evaluator.
 
-Note-taking strategy assessment:
-- Did the student capture the main argument?
-- Were key supporting points included?
-- Was the structure logical (intro → body → conclusion)?
-- Were academic/technical terms pronounced correctly?`,
+${PTE_BAND_REFERENCE}
+
+OFFICIAL RE-TELL LECTURE SCORING RUBRIC:
+- CONTENT (0-5): Coverage of main topic, key arguments, supporting details
+  5 = All main points with logical structure | 4 = Most points, minor gaps | 3 = Main topic + some points | 2 = Only main topic | 1 = Minimal content | 0 = Off-topic
+- ORAL FLUENCY (0-5): Natural academic delivery
+- PRONUNCIATION (0-5): Clear articulation of academic/technical vocabulary
+
+NOTE-TAKING STRATEGY ASSESSMENT:
+- Was the main argument captured?
+- Were 3-5 key supporting points included?
+- Was the structure logical (topic → argument → evidence → conclusion)?
+- Were academic terms pronounced correctly?
+
+COMMON ERRORS:
+1. Describing only the topic without the argument
+2. Listing facts without showing relationships
+3. Missing the speaker's conclusion or stance
+4. Mispronouncing technical/academic vocabulary
+5. Speaking too quickly and losing clarity`,
 
   answer_short_question: `You are an expert PTE Academic Answer Short Question evaluator.
-Evaluate:
-- CONTENT (0-1): Correct, concise answer (1-3 words typically)
-- PRONUNCIATION: Clear and natural
-- Speed: Appropriate response time
 
-Common issues:
-- Giving too long an answer when one word suffices
-- Mispronouncing the answer word
-- Confusing similar concepts`,
+SCORING: Binary — correct (100) or incorrect (0).
+A correct answer is typically 1-3 words. Partial answers or over-explanations do not gain extra credit.
 
-  summarize_written_text: `You are an expert PTE Academic Summarize Written Text evaluator and coach.
-Evaluate strictly:
-- CONTENT (0-2): All key points from the passage included, no irrelevant information
+COMMON ERRORS:
+1. Giving a sentence when one word suffices
+2. Confusing similar concepts (e.g., "biography" vs "autobiography")
+3. Mispronouncing the answer
+4. Hesitating too long before answering`,
+
+  summarize_written_text: `You are an expert PTE Academic Summarize Written Text evaluator.
+
+${PTE_BAND_REFERENCE}
+
+OFFICIAL SWT SCORING RUBRIC (max 8 points):
+- CONTENT (0-2): Key points from passage included, no irrelevant information
+  2 = All key points | 1 = Main point only | 0 = Irrelevant or missing
 - FORM (0-1): Single sentence, 5-75 words, grammatically complete
-- GRAMMAR (0-2): Complex sentence structure, correct subordination, punctuation
-- VOCABULARY (0-2): Academic vocabulary, paraphrasing (not copying), precise word choice
+  1 = Meets all form requirements | 0 = Multiple sentences OR outside word range
+- GRAMMAR (0-2): Complex sentence structure, correct subordination
+  2 = No errors, complex syntax | 1 = Minor errors | 0 = Major errors
+- VOCABULARY (0-2): Academic vocabulary, paraphrasing (not copying)
+  2 = Sophisticated paraphrase, academic range | 1 = Some paraphrase | 0 = Verbatim copying
 - SPELLING (0-1): No spelling errors
 
-Critical rules:
-- MUST be ONE sentence only
-- MUST be 5-75 words
-- Should NOT copy sentences verbatim from the passage
-- Should use complex sentence structures (relative clauses, participle phrases)
-- Should cover the MAIN idea plus 2-3 key supporting points`,
+CRITICAL RULES:
+1. MUST be ONE sentence only — multiple sentences = FORM score 0
+2. MUST be 5-75 words — outside range = FORM score 0
+3. Should NOT copy sentences verbatim
+4. Should use complex structures: relative clauses, participle phrases, nominalisations
+5. Should cover MAIN idea + 2-3 key supporting points
 
-  write_essay: `You are an expert PTE Academic Write Essay evaluator and coach.
-Evaluate against official PTE criteria:
-- CONTENT (0-3): Addresses all aspects of the prompt, develops a clear position, relevant examples
-- FORM (0-2): 200-300 words, appropriate essay structure (intro, body, conclusion)
-- GRAMMAR (0-2): Variety of sentence structures, minimal errors, complex syntax
-- VOCABULARY (0-2): Academic vocabulary range, precise word choice, collocations
-- SPELLING (0-1): Consistent spelling throughout
-- WRITTEN DISCOURSE (0-2): Cohesion, coherence, logical flow, discourse markers
+COMMON ERRORS:
+1. Writing multiple sentences (most common error)
+2. Exceeding 75 words
+3. Copying sentences directly from the passage
+4. Omitting the main argument
+5. Using simple "and" coordination instead of complex subordination
+6. Missing key supporting details`,
 
-Essay structure to evaluate:
-1. Introduction: paraphrase prompt + thesis statement
-2. Body paragraph 1: main argument + evidence/example
-3. Body paragraph 2: counter-argument or second point + evidence
-4. Conclusion: restate thesis + broader implication
+  write_essay: `You are an expert PTE Academic Write Essay evaluator.
 
-Common weaknesses:
-- Repetitive vocabulary (using same words repeatedly)
-- Weak topic sentences
-- Missing discourse markers (Furthermore, However, In contrast)
-- Generic examples instead of specific ones
-- Word count outside 200-300 range`,
+${PTE_BAND_REFERENCE}
 
-  multiple_choice_single: `You are an expert PTE Academic Reading evaluator and coach.
-For Multiple Choice (Single Answer) tasks, evaluate:
-- Reading comprehension depth
-- Ability to identify the main argument vs. supporting details
-- Distinguishing between correct answers and plausible distractors
+OFFICIAL ESSAY SCORING RUBRIC (max 15 points):
+- CONTENT (0-3): Addresses all aspects, develops clear position, relevant examples
+  3 = Fully addresses all aspects with well-developed argument | 2 = Addresses most aspects | 1 = Partially addresses | 0 = Off-topic
+- FORM (0-2): 200-300 words, appropriate structure
+  2 = 200-300 words, clear intro/body/conclusion | 1 = Minor structure issues or slight word count deviation | 0 = <150 or >380 words
+- GRAMMAR (0-2): Variety of structures, minimal errors
+  2 = Complex variety, no significant errors | 1 = Some variety, minor errors | 0 = Basic structures, frequent errors
+- VOCABULARY (0-2): Academic range, precise word choice
+  2 = Wide academic range, precise collocations | 1 = Adequate range | 0 = Basic/repetitive
+- SPELLING (0-1): Consistent spelling
+- WRITTEN DISCOURSE (0-2): Cohesion, coherence, discourse markers
+  2 = Excellent flow, varied discourse markers | 1 = Adequate cohesion | 0 = Poor flow, no markers
 
-Common errors:
-- Choosing answers that are partially true but not fully supported by the text
-- Missing negation words (NOT, EXCEPT, NEVER)
-- Confusing the author's view with examples or counterarguments`,
+IDEAL ESSAY STRUCTURE:
+1. Introduction (40-50 words): Paraphrase prompt + clear thesis statement
+2. Body 1 (60-80 words): Main argument + specific example/evidence + explanation
+3. Body 2 (60-80 words): Second argument OR counter-argument + rebuttal
+4. Conclusion (30-40 words): Restate thesis + broader implication
 
-  multiple_choice_multiple: `You are an expert PTE Academic Reading evaluator and coach.
-For Multiple Choice (Multiple Answers) tasks, evaluate:
-- Ability to identify ALL correct answers
-- Avoiding over-selection (choosing too many)
-- Careful reading of each option against the text`,
+COMMON ERRORS:
+1. Not paraphrasing the prompt in the introduction
+2. Weak topic sentences that don't preview the paragraph
+3. Generic examples ("For example, in many countries...")
+4. Repetitive vocabulary (using the same word 3+ times)
+5. Missing discourse markers (Furthermore, However, In contrast, Consequently)
+6. Conclusion that just repeats the introduction word-for-word
+7. Word count outside 200-300 range`,
 
-  reorder_paragraphs: `You are an expert PTE Academic Reading evaluator and coach.
-For Reorder Paragraphs tasks, evaluate:
-- Understanding of discourse structure and logical flow
-- Recognition of topic sentences and supporting details
-- Use of cohesive devices (pronouns, connectors, time references)
+  summarize_spoken_text: `You are an expert PTE Academic Summarize Spoken Text evaluator.
 
-Strategies to teach:
-1. Find the topic sentence (often the most general statement)
-2. Look for pronouns that refer back to previous sentences
-3. Identify time/sequence markers (first, then, finally, subsequently)
-4. Find cause-effect relationships`,
-
-  fill_in_blanks_reading: `You are an expert PTE Academic Reading & Writing Fill in the Blanks evaluator.
-Evaluate:
-- Vocabulary knowledge (collocations, word forms, academic vocabulary)
-- Grammatical awareness (correct part of speech, tense, number agreement)
-- Contextual understanding
-
-Common errors:
-- Choosing words with similar meaning but wrong collocation
-- Incorrect word form (noun vs. verb vs. adjective)
-- Ignoring grammatical context (singular/plural, tense)`,
-
-  fill_in_blanks_rw: `You are an expert PTE Academic Reading & Writing Fill in the Blanks evaluator.
-This is the highest-value reading task. Evaluate:
-- Vocabulary precision and range
-- Collocational knowledge
-- Grammatical accuracy
-- Contextual inference
-
-Teaching points:
-- Always check the word that comes before and after the blank
-- Consider the grammatical function needed (noun, verb, adjective, adverb)
-- Eliminate options that don't collocate with surrounding words`,
-
-  summarize_spoken_text: `You are an expert PTE Academic Summarize Spoken Text evaluator and coach.
-Evaluate:
-- CONTENT (0-2): Key points from the lecture captured accurately
+OFFICIAL SST SCORING RUBRIC (max 8 points — same as SWT):
+- CONTENT (0-2): Key points from lecture captured
 - FORM (0-1): 50-70 words, complete sentences, paragraph format
-- GRAMMAR (0-2): Accurate and varied sentence structures
+- GRAMMAR (0-2): Accurate and varied structures
 - VOCABULARY (0-2): Academic vocabulary, paraphrasing
 - SPELLING (0-1): Correct spelling
 
-Note-taking assessment:
-- Did the student capture the main topic?
-- Were supporting arguments included?
-- Were specific examples or data mentioned?
-- Was the structure logical?`,
+COMMON ERRORS:
+1. Word count outside 50-70 range
+2. Writing bullet points instead of prose
+3. Missing the main argument of the lecture
+4. Including irrelevant details while missing key points
+5. Copying exact phrases from the transcript`,
 
-  multiple_choice_single_listening: `You are an expert PTE Academic Listening evaluator and coach.
-For Listening Multiple Choice tasks, evaluate:
-- Ability to identify the main point from spoken discourse
-- Distinguishing between what was said and what was implied
-- Handling academic lecture style and speed`,
+  multiple_choice_single: `You are an expert PTE Academic Reading evaluator.
+
+SCORING: Correct = full marks, Incorrect = 0.
+
+STRATEGY COACHING:
+1. Read the question FIRST to know what to look for
+2. Skim the passage for the relevant section
+3. Eliminate clearly wrong options
+4. Watch for negation words: NOT, EXCEPT, NEVER, LEAST
+5. The correct answer is usually a paraphrase, not a direct quote
+6. Beware of "partially true" options that miss a key qualifier
+
+COMMON ERRORS:
+1. Choosing answers that are true but not supported by the text
+2. Missing negation words
+3. Confusing the author's view with examples cited in the text
+4. Choosing the first plausible option without checking others`,
+
+  multiple_choice_multiple: `You are an expert PTE Academic Reading evaluator.
+
+SCORING: Partial credit — correct selections minus incorrect selections.
+
+STRATEGY COACHING:
+1. Typically 2-3 correct answers out of 5-7 options
+2. Each correct selection = +1, each incorrect = -1 (net scoring)
+3. If unsure, it's better to leave an option unselected than guess wrong
+4. Verify each option independently against the text
+
+COMMON ERRORS:
+1. Over-selecting (choosing too many options)
+2. Under-selecting (missing correct options)
+3. Not reading each option carefully against the passage`,
+
+  reorder_paragraphs: `You are an expert PTE Academic Reading evaluator.
+
+SCORING: Partial credit for adjacent pairs in correct order.
+
+STRATEGY COACHING:
+1. Find the TOPIC SENTENCE first (most general, introduces the topic)
+2. Look for pronouns that refer back (it, they, this, these → must follow what they refer to)
+3. Identify time/sequence markers (first, then, subsequently, finally)
+4. Find cause-effect relationships (because, therefore, as a result)
+5. The concluding paragraph often contains "in conclusion", "overall", "thus"
+
+COMMON ERRORS:
+1. Not identifying the topic sentence correctly
+2. Ignoring pronoun references
+3. Placing the conclusion too early`,
+
+  fill_in_blanks_reading: `You are an expert PTE Academic Reading Fill in the Blanks evaluator.
+
+SCORING: 1 point per correct blank.
+
+STRATEGY COACHING:
+1. Read the entire sentence before choosing
+2. Check the word BEFORE and AFTER the blank for collocational clues
+3. Determine the grammatical function needed (noun/verb/adjective/adverb)
+4. Eliminate options that don't collocate with surrounding words
+5. Check for subject-verb agreement and tense consistency
+
+COMMON ERRORS:
+1. Choosing words with similar meaning but wrong collocation
+2. Wrong word form (e.g., "economy" instead of "economic")
+3. Ignoring tense or number agreement`,
+
+  fill_in_blanks_rw: `You are an expert PTE Academic Reading & Writing Fill in the Blanks evaluator.
+
+This is the highest-value reading task — each blank is worth 1 point.
+
+STRATEGY COACHING:
+1. Read the entire passage first for context
+2. For each blank, identify: grammatical function + semantic field + collocation
+3. Use process of elimination — cross out clearly wrong options first
+4. Academic collocations are key: "conduct research", "raise awareness", "draw conclusions"
+
+COMMON ERRORS:
+1. Choosing semantically similar but collocationally wrong words
+2. Ignoring grammatical constraints (e.g., choosing a verb when a noun is needed)
+3. Not using passage context to narrow down options`,
 
   highlight_correct_summary: `You are an expert PTE Academic Listening evaluator.
-For Highlight Correct Summary tasks, evaluate:
-- Ability to identify the most accurate and complete summary
-- Avoiding summaries that are too narrow or too broad
-- Recognizing paraphrasing of spoken content`,
+
+SCORING: Correct = full marks, Incorrect = 0.
+
+STRATEGY COACHING:
+1. Listen for the MAIN ARGUMENT, not just details
+2. The correct summary covers the whole passage, not just one part
+3. Eliminate summaries that are too narrow (only one point) or too broad (vague generalisation)
+4. Watch for summaries that add information NOT in the recording
+5. The correct answer paraphrases the content — it won't use the exact same words
+
+COMMON ERRORS:
+1. Choosing a summary that's accurate but incomplete
+2. Choosing a summary that sounds good but includes unsupported claims`,
 
   select_missing_word: `You are an expert PTE Academic Listening evaluator.
-For Select Missing Word tasks, evaluate:
-- Ability to predict the logical completion of spoken discourse
-- Understanding of academic discourse conventions
-- Vocabulary and collocational knowledge`,
 
-  highlight_incorrect_words: `You are an expert PTE Academic Listening evaluator and coach.
-For Highlight Incorrect Words tasks, evaluate:
-- Ability to simultaneously listen and read
-- Attention to detail at the word level
-- Speed and accuracy of identification
+SCORING: Correct = full marks, Incorrect = 0.
 
-Strategies:
-- Follow the text with your eyes while listening
-- Focus on content words (nouns, verbs, adjectives) as these are most often changed
-- Don't get distracted by one change and miss others`,
+STRATEGY COACHING:
+1. Listen to the entire recording to understand the topic and direction
+2. The missing word continues the logical flow of the final sentence
+3. Consider: What word would a native speaker naturally use here?
+4. Eliminate options that don't fit the grammatical structure
 
-  fill_in_blanks_listening: `You are an expert PTE Academic Listening Fill in the Blanks evaluator.
-Evaluate:
-- Ability to transcribe spoken words accurately
-- Spelling accuracy under time pressure
-- Handling of academic vocabulary
+COMMON ERRORS:
+1. Choosing a thematically related word that doesn't fit the sentence structure
+2. Not listening to the full context before the gap`,
 
-Common errors:
-- Mishearing similar-sounding words (affect/effect, their/there)
-- Spelling errors on academic vocabulary
-- Missing function words`,
+  highlight_incorrect_words: `You are an expert PTE Academic Listening evaluator.
 
-  write_from_dictation: `You are an expert PTE Academic Write from Dictation evaluator and coach.
-This is the highest-value listening task. Evaluate:
-- WORD ACCURACY: Each correct word scores 1 point
-- SPELLING: Incorrect spelling = 0 points for that word
-- WORD ORDER: Words must be in correct position
+SCORING: Partial credit — correct identifications minus false positives.
 
-Scoring: Each correct word = 1 point (max = number of words in sentence)
+STRATEGY COACHING:
+1. Read the transcript BEFORE the audio starts
+2. Follow along word-by-word as you listen
+3. Mark words that sound different from what you read
+4. Don't over-mark — false positives reduce your score
+5. Focus on content words (nouns, verbs, adjectives) — these are more likely to be changed
 
-Common errors:
-- Mishearing unstressed function words (a, the, of, to)
-- Spelling errors on academic vocabulary
-- Omitting words from the middle of the sentence
-- Adding extra words not in the original`,
+COMMON ERRORS:
+1. Over-marking (selecting too many words)
+2. Missing subtle word changes (e.g., "increase" → "decrease")
+3. Not following along with the text while listening`,
+
+  write_from_dictation: `You are an expert PTE Academic Write from Dictation evaluator.
+
+SCORING: 1 point per correct word (partial credit).
+
+STRATEGY COACHING:
+1. Listen for the overall meaning first, then individual words
+2. Focus on content words if you miss function words
+3. Academic vocabulary is often tested — practise common academic word list (AWL) words
+4. Spelling counts — incorrect spelling = no credit for that word
+5. Write quickly — don't overthink individual words
+
+COMMON ERRORS:
+1. Spelling errors on common academic words
+2. Missing function words (articles, prepositions, auxiliaries)
+3. Confusing homophones (their/there, affect/effect)
+4. Not writing enough words (leaving blanks)`,
 };
 
-/**
- * Generate comprehensive task-specific AI feedback
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// GENERATE TASK-SPECIFIC FEEDBACK
+// ─────────────────────────────────────────────────────────────────────────────
 export async function generateTaskFeedback(params: {
   taskType: string;
   question: string;
-  studentResponse: string;
+  userResponse: string;
   correctAnswer?: string;
-  score: number;
-  maxScore: number;
+  score: number; // 0-100
   transcription?: string;
+  wordCount?: number;
 }): Promise<TaskFeedback> {
-  const coachingPrompt = TASK_COACHING_PROMPTS[params.taskType] || TASK_COACHING_PROMPTS.write_essay;
-  const scorePercentage = params.maxScore > 0 ? (params.score / params.maxScore) * 100 : 0;
+  const coachingPrompt = TASK_COACHING_PROMPTS[params.taskType] ||
+    `You are an expert PTE Academic evaluator for ${params.taskType.replace(/_/g, " ")} tasks.`;
 
   const systemPrompt = `${coachingPrompt}
 
-You are providing detailed coaching feedback to a PTE Academic student.
-The student scored ${params.score}/${params.maxScore} (${Math.round(scorePercentage)}%).
+## YOUR TASK: Generate detailed, actionable coaching feedback
 
-Provide actionable, specific, encouraging feedback that helps them improve.
-Be specific about WHAT went wrong and HOW to fix it.
-Include a model answer or example where appropriate.
+Follow this CHAIN-OF-THOUGHT process:
 
-Return ONLY valid JSON matching this exact schema:
-{
-  "overallBand": "<Excellent|Good|Satisfactory|Needs Improvement|Poor>",
-  "scoreBreakdown": [
-    {"criterion": "<name>", "score": <0-5>, "maxScore": 5, "comment": "<specific comment>"}
-  ],
-  "detailedFeedback": "<3-5 sentences of detailed, specific feedback>",
-  "specificErrors": [
-    {"type": "<error type>", "example": "<what student did>", "correction": "<what they should do>", "explanation": "<why this matters>"}
-  ],
-  "modelAnswer": "<ideal response or key phrases to use>",
-  "improvementTips": [
-    {"priority": "<high|medium|low>", "skill": "<skill name>", "tip": "<specific actionable tip>", "practiceExercise": "<concrete exercise to practice>"}
-  ],
-  "nextSteps": ["<step 1>", "<step 2>", "<step 3>"],
-  "estimatedScoreRange": {"min": <10-90>, "max": <10-90>}
-}`;
+STEP 1 — ANALYSE THE RESPONSE: What did the student do well? What went wrong? Be specific with examples from their actual response.
 
-  const userMessage = `Task Type: ${params.taskType.replace(/_/g, " ").toUpperCase()}
+STEP 2 — SCORE BREAKDOWN: Rate each criterion (0-5) with a specific comment referencing the student's actual words.
+
+STEP 3 — ERROR IDENTIFICATION: List each specific error with: what it was, what it should be, why it matters for PTE score.
+
+STEP 4 — GENERATE MODEL ANSWERS: Create three model answers at band 65, 79, and 90 levels for this specific task. These should be realistic and achievable, not perfect.
+
+STEP 5 — PRIORITISE IMPROVEMENTS: Rank improvements by score impact. What single change would give the biggest score boost?
+
+STEP 6 — CALIBRATE BAND: Based on the raw score of ${params.score}/100, assign the appropriate PTE band descriptor.
+
+Return ONLY valid JSON matching this exact schema:`;
+
+  const userContent = `Task Type: ${params.taskType.replace(/_/g, " ").toUpperCase()}
 Question/Prompt: ${params.question}
-Student's Response: ${params.studentResponse}
-${params.correctAnswer ? `Correct Answer: ${params.correctAnswer}` : ""}
-${params.transcription ? `Audio Transcription: ${params.transcription}` : ""}
-Score: ${params.score}/${params.maxScore}`;
+Student's Response: ${params.userResponse}${params.transcription ? `\nTranscription: ${params.transcription}` : ""}${params.wordCount ? `\nWord Count: ${params.wordCount}` : ""}${params.correctAnswer ? `\nCorrect Answer: ${params.correctAnswer}` : ""}
+Raw Score: ${params.score}/100`;
 
   try {
     const result = await invokeLLM({
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
+        { role: "user", content: userContent },
       ],
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "task_feedback",
+          name: "task_feedback_v2",
           strict: true,
           schema: {
             type: "object",
             properties: {
-              overallBand: { type: "string", enum: ["Excellent", "Good", "Satisfactory", "Needs Improvement", "Poor"] },
+              reasoning: { type: "string" },
+              overallBand: { type: "string", enum: ["Expert (90)", "Very Good (79-89)", "Good (65-78)", "Competent (50-64)", "Modest (36-49)", "Limited (10-35)"] },
               scoreBreakdown: {
                 type: "array",
                 items: {
@@ -358,8 +486,9 @@ Score: ${params.score}/${params.maxScore}`;
                     score: { type: "number" },
                     maxScore: { type: "number" },
                     comment: { type: "string" },
+                    pteBandEquivalent: { type: "string" },
                   },
-                  required: ["criterion", "score", "maxScore", "comment"],
+                  required: ["criterion", "score", "maxScore", "comment", "pteBandEquivalent"],
                   additionalProperties: false,
                 },
               },
@@ -373,23 +502,37 @@ Score: ${params.score}/${params.maxScore}`;
                     example: { type: "string" },
                     correction: { type: "string" },
                     explanation: { type: "string" },
+                    impactOnScore: { type: "string", enum: ["high", "medium", "low"] },
                   },
-                  required: ["type", "example", "correction", "explanation"],
+                  required: ["type", "example", "correction", "explanation", "impactOnScore"],
                   additionalProperties: false,
                 },
               },
-              modelAnswer: { type: "string" },
+              modelAnswers: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    band: { type: "string", enum: ["65", "79", "90"] },
+                    response: { type: "string" },
+                    commentary: { type: "string" },
+                  },
+                  required: ["band", "response", "commentary"],
+                  additionalProperties: false,
+                },
+              },
               improvementTips: {
                 type: "array",
                 items: {
                   type: "object",
                   properties: {
-                    priority: { type: "string", enum: ["high", "medium", "low"] },
+                    priority: { type: "string", enum: ["critical", "high", "medium", "low"] },
                     skill: { type: "string" },
                     tip: { type: "string" },
                     practiceExercise: { type: "string" },
+                    expectedImpact: { type: "string" },
                   },
-                  required: ["priority", "skill", "tip", "practiceExercise"],
+                  required: ["priority", "skill", "tip", "practiceExercise", "expectedImpact"],
                   additionalProperties: false,
                 },
               },
@@ -404,7 +547,7 @@ Score: ${params.score}/${params.maxScore}`;
                 additionalProperties: false,
               },
             },
-            required: ["overallBand", "scoreBreakdown", "detailedFeedback", "specificErrors", "modelAnswer", "improvementTips", "nextSteps", "estimatedScoreRange"],
+            required: ["reasoning", "overallBand", "scoreBreakdown", "detailedFeedback", "specificErrors", "modelAnswers", "improvementTips", "nextSteps", "estimatedScoreRange"],
             additionalProperties: false,
           },
         },
@@ -412,25 +555,38 @@ Score: ${params.score}/${params.maxScore}`;
     });
 
     const content = result.choices[0]?.message?.content as string;
-    return JSON.parse(content || "{}") as TaskFeedback;
+    const parsed = JSON.parse(content || "{}");
+
+    return {
+      taskType: params.taskType,
+      overallBand: parsed.overallBand,
+      scoreBreakdown: parsed.scoreBreakdown ?? [],
+      detailedFeedback: parsed.detailedFeedback ?? "",
+      specificErrors: parsed.specificErrors ?? [],
+      modelAnswers: parsed.modelAnswers ?? [],
+      improvementTips: parsed.improvementTips ?? [],
+      nextSteps: parsed.nextSteps ?? [],
+      estimatedScoreRange: parsed.estimatedScoreRange ?? { min: 40, max: 60 },
+      reasoning: parsed.reasoning ?? "",
+    };
   } catch (err) {
-    console.error("Task feedback generation error:", err);
-    return getDefaultTaskFeedback(params.taskType, scorePercentage);
+    console.error("Task feedback error:", err);
+    return getDefaultFeedback(params.taskType);
   }
 }
 
-/**
- * Generate a personalized coaching plan based on session history
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// GENERATE PERSONALISED COACHING PLAN
+// ─────────────────────────────────────────────────────────────────────────────
 export async function generateCoachingPlan(params: {
   userId: number;
   targetScore: number;
+  currentLevel: string;
   recentScores: {
     taskType: string;
-    section: string;
     score: number;
-    maxScore: number;
-    date: Date;
+    section: string;
+    createdAt: Date;
   }[];
   skillScores: {
     grammar?: number;
@@ -439,75 +595,81 @@ export async function generateCoachingPlan(params: {
     fluency?: number;
     spelling?: number;
     writtenDiscourse?: number;
+    speaking?: number;
+    writing?: number;
+    reading?: number;
+    listening?: number;
   };
 }): Promise<PersonalizedCoachingPlan> {
-  const avgScore = params.recentScores.length > 0
-    ? params.recentScores.reduce((sum, s) => sum + (s.score / s.maxScore) * 90, 0) / params.recentScores.length
-    : 45;
+  const overallScore = params.recentScores.length > 0
+    ? Math.round(params.recentScores.reduce((sum, s) => sum + s.score, 0) / params.recentScores.length)
+    : 50;
 
-  const sectionScores = params.recentScores.reduce((acc, s) => {
-    if (!acc[s.section]) acc[s.section] = { total: 0, count: 0 };
-    acc[s.section].total += (s.score / s.maxScore) * 90;
-    acc[s.section].count++;
+  const scoreGap = params.targetScore - overallScore;
+  const weeksEstimate = Math.max(4, Math.ceil(scoreGap / 3)); // ~3 points per week with consistent practice
+
+  // Identify weakest task types
+  const taskTypeScores = params.recentScores.reduce((acc, s) => {
+    if (!acc[s.taskType]) acc[s.taskType] = [];
+    acc[s.taskType].push(s.score);
     return acc;
-  }, {} as Record<string, { total: number; count: number }>);
+  }, {} as Record<string, number[]>);
 
-  const sectionAverages = Object.entries(sectionScores).map(([section, data]) => ({
-    section,
-    avg: Math.round(data.total / data.count),
-  }));
+  const taskAverages = Object.entries(taskTypeScores).map(([type, scores]) => ({
+    type,
+    avg: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+  })).sort((a, b) => a.avg - b.avg);
 
-  const systemPrompt = `You are an expert PTE Academic coach creating a personalized study plan.
-Based on the student's performance data, create a detailed, actionable coaching plan.
+  const weakestTasks = taskAverages.slice(0, 3).map(t => `${t.type.replace(/_/g, " ")} (avg: ${t.avg})`).join(", ");
 
-Student Profile:
+  const systemPrompt = `You are a world-class PTE Academic coach who has helped thousands of students achieve their target scores.
+
+${PTE_BAND_REFERENCE}
+
+Your coaching philosophy:
+1. Focus on HIGH-IMPACT improvements first — the skills that affect multiple communicative scores simultaneously
+2. Be SPECIFIC and ACTIONABLE — not "improve grammar" but "practise subject-verb agreement with 10 sentences daily"
+3. Set REALISTIC milestones — 3-5 points per week with consistent 30-45 minute daily practice
+4. Identify QUICK WINS — tasks where small effort yields large score gains
+5. Address ROOT CAUSES — e.g., poor vocabulary affects Writing, Reading, AND Speaking simultaneously
+
+Generate a personalised ${weeksEstimate}-week coaching plan. Return ONLY valid JSON.`;
+
+  const studentProfile = `
+STUDENT PROFILE:
+- Current Level: ${params.currentLevel}
 - Target Score: ${params.targetScore}/90
-- Current Estimated Score: ${Math.round(avgScore)}/90
-- Score Gap: ${Math.round(params.targetScore - avgScore)} points needed
+- Estimated Current Score: ${overallScore}/90
+- Score Gap: ${scoreGap} points needed
+- Estimated weeks to target: ${weeksEstimate}
 
-Section Performance:
-${sectionAverages.map(s => `- ${s.section}: ${s.avg}/90`).join("\n")}
+COMMUNICATIVE SKILLS:
+- Speaking: ${params.skillScores.speaking ?? "Not tested"}/90
+- Writing: ${params.skillScores.writing ?? "Not tested"}/90
+- Reading: ${params.skillScores.reading ?? "Not tested"}/90
+- Listening: ${params.skillScores.listening ?? "Not tested"}/90
 
-Enabling Skills:
-${Object.entries(params.skillScores).map(([k, v]) => `- ${k}: ${v || "N/A"}/90`).join("\n")}
+ENABLING SKILLS:
+- Grammar: ${params.skillScores.grammar ?? "N/A"}/90
+- Vocabulary: ${params.skillScores.vocabulary ?? "N/A"}/90
+- Pronunciation: ${params.skillScores.pronunciation ?? "N/A"}/90
+- Oral Fluency: ${params.skillScores.fluency ?? "N/A"}/90
+- Spelling: ${params.skillScores.spelling ?? "N/A"}/90
+- Written Discourse: ${params.skillScores.writtenDiscourse ?? "N/A"}/90
 
-Create a realistic, motivating plan that:
-1. Prioritizes the biggest score gaps
-2. Provides specific daily practice activities
-3. Sets achievable weekly milestones
-4. Focuses on high-impact task types (Write from Dictation, Read Aloud, Fill in Blanks are highest scoring)
-
-Return ONLY valid JSON:
-{
-  "studentLevel": "<Beginner|Elementary|Intermediate|Upper-Intermediate|Advanced>",
-  "overallAssessment": "<2-3 sentence honest assessment>",
-  "targetScore": ${params.targetScore},
-  "currentEstimatedScore": ${Math.round(avgScore)},
-  "weeklyPlan": [
-    {"week": 1, "focus": "<focus area>", "tasks": ["<task 1>", "<task 2>", "<task 3>"], "targetImprovement": "<specific goal>"}
-  ],
-  "skillGaps": [
-    {"skill": "<skill>", "currentLevel": <0-90>, "targetLevel": <0-90>, "gap": <number>, "priority": "<critical|important|nice-to-have>", "resources": ["<resource 1>", "<resource 2>"]}
-  ],
-  "dailyPracticeRecommendation": {
-    "totalMinutes": <number>,
-    "breakdown": [
-      {"activity": "<activity>", "minutes": <number>, "frequency": "<daily|3x/week|weekly>"}
-    ]
-  },
-  "motivationalMessage": "<encouraging, personalized message>"
-}`;
+WEAKEST TASK TYPES: ${weakestTasks || "Insufficient data"}
+RECENT PRACTICE: ${params.recentScores.length} tasks completed`;
 
   try {
     const result = await invokeLLM({
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate a 4-week coaching plan for this student.` },
+        { role: "user", content: studentProfile },
       ],
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "coaching_plan",
+          name: "coaching_plan_v2",
           strict: true,
           schema: {
             type: "object",
@@ -516,17 +678,21 @@ Return ONLY valid JSON:
               overallAssessment: { type: "string" },
               targetScore: { type: "number" },
               currentEstimatedScore: { type: "number" },
+              scoreGap: { type: "number" },
+              estimatedWeeksToTarget: { type: "number" },
               weeklyPlan: {
                 type: "array",
                 items: {
                   type: "object",
                   properties: {
                     week: { type: "number" },
+                    theme: { type: "string" },
                     focus: { type: "string" },
                     tasks: { type: "array", items: { type: "string" } },
                     targetImprovement: { type: "string" },
+                    checkpointGoal: { type: "string" },
                   },
-                  required: ["week", "focus", "tasks", "targetImprovement"],
+                  required: ["week", "theme", "focus", "tasks", "targetImprovement", "checkpointGoal"],
                   additionalProperties: false,
                 },
               },
@@ -540,9 +706,11 @@ Return ONLY valid JSON:
                     targetLevel: { type: "number" },
                     gap: { type: "number" },
                     priority: { type: "string", enum: ["critical", "important", "nice-to-have"] },
+                    rootCause: { type: "string" },
                     resources: { type: "array", items: { type: "string" } },
+                    practiceFrequency: { type: "string" },
                   },
-                  required: ["skill", "currentLevel", "targetLevel", "gap", "priority", "resources"],
+                  required: ["skill", "currentLevel", "targetLevel", "gap", "priority", "rootCause", "resources", "practiceFrequency"],
                   additionalProperties: false,
                 },
               },
@@ -558,8 +726,9 @@ Return ONLY valid JSON:
                         activity: { type: "string" },
                         minutes: { type: "number" },
                         frequency: { type: "string" },
+                        rationale: { type: "string" },
                       },
-                      required: ["activity", "minutes", "frequency"],
+                      required: ["activity", "minutes", "frequency", "rationale"],
                       additionalProperties: false,
                     },
                   },
@@ -567,9 +736,10 @@ Return ONLY valid JSON:
                 required: ["totalMinutes", "breakdown"],
                 additionalProperties: false,
               },
+              quickWins: { type: "array", items: { type: "string" } },
               motivationalMessage: { type: "string" },
             },
-            required: ["studentLevel", "overallAssessment", "targetScore", "currentEstimatedScore", "weeklyPlan", "skillGaps", "dailyPracticeRecommendation", "motivationalMessage"],
+            required: ["studentLevel", "overallAssessment", "targetScore", "currentEstimatedScore", "scoreGap", "estimatedWeeksToTarget", "weeklyPlan", "skillGaps", "dailyPracticeRecommendation", "quickWins", "motivationalMessage"],
             additionalProperties: false,
           },
         },
@@ -577,127 +747,134 @@ Return ONLY valid JSON:
     });
 
     const content = result.choices[0]?.message?.content as string;
-    return JSON.parse(content || "{}") as PersonalizedCoachingPlan;
+    return JSON.parse(content || "{}");
   } catch (err) {
-    console.error("Coaching plan generation error:", err);
-    return getDefaultCoachingPlan(params.targetScore, Math.round(avgScore));
+    console.error("Coaching plan error:", err);
+    return getDefaultCoachingPlan(params.targetScore, overallScore);
   }
 }
 
-/**
- * Generate instant micro-feedback for a specific error pattern
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// DEFAULT FALLBACKS
+// ─────────────────────────────────────────────────────────────────────────────
+function getDefaultFeedback(taskType: string): TaskFeedback {
+  return {
+    taskType,
+    overallBand: "Competent (50-64)",
+    scoreBreakdown: [],
+    detailedFeedback: "Detailed feedback is temporarily unavailable. Your response has been saved.",
+    specificErrors: [],
+    modelAnswers: [],
+    improvementTips: [{
+      priority: "high",
+      skill: "General",
+      tip: "Complete more practice tasks to receive personalised feedback.",
+      practiceExercise: "Complete 5 tasks in your weakest section.",
+      expectedImpact: "Enables personalised coaching",
+    }],
+    nextSteps: ["Complete more practice tasks to unlock detailed AI feedback."],
+    estimatedScoreRange: { min: 45, max: 65 },
+    reasoning: "Feedback generation failed — using default response.",
+  };
+}
+
+function getDefaultCoachingPlan(targetScore: number, currentScore: number): PersonalizedCoachingPlan {
+  return {
+    studentLevel: "Intermediate",
+    overallAssessment: "Complete more practice tasks to receive a personalised coaching plan.",
+    targetScore,
+    currentEstimatedScore: currentScore,
+    scoreGap: targetScore - currentScore,
+    estimatedWeeksToTarget: 8,
+    weeklyPlan: [],
+    skillGaps: [],
+    dailyPracticeRecommendation: {
+      totalMinutes: 45,
+      breakdown: [
+        { activity: "Speaking practice (Read Aloud + Describe Image)", minutes: 15, frequency: "Daily", rationale: "Speaking affects 3 enabling skills simultaneously" },
+        { activity: "Writing practice (Essay or SWT)", minutes: 20, frequency: "Daily", rationale: "Writing has the highest point value per task" },
+        { activity: "Reading practice (Fill in Blanks + Reorder)", minutes: 10, frequency: "Daily", rationale: "Reading tasks have partial credit scoring" },
+      ],
+    },
+    quickWins: ["Write from Dictation — high partial credit, improves with 10 min daily listening practice"],
+    motivationalMessage: "Every practice session brings you closer to your target score. Consistency is the key!",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MICRO FEEDBACK — targeted explanation for a single error type
+// ─────────────────────────────────────────────────────────────────────────────
 export async function generateMicroFeedback(params: {
   taskType: string;
   errorType: string;
   studentExample: string;
   correctExample?: string;
-}): Promise<{ explanation: string; tip: string; example: string }> {
+}): Promise<{
+  explanation: string;
+  correction: string;
+  rule: string;
+  practiceExercise: string;
+  relatedErrors: string[];
+}> {
+  const systemPrompt = `You are an expert PTE Academic coach. Provide a concise, highly targeted explanation for a specific error type.
+
+Be specific to the PTE Academic context. Explain:
+1. WHY this error occurs (root cause)
+2. The RULE that applies
+3. HOW to fix it with a concrete example
+4. A quick PRACTICE EXERCISE to reinforce the correction
+5. Related errors that often co-occur
+
+Return ONLY valid JSON:
+{
+  "explanation": "<2-3 sentence explanation of why this error occurs and its impact on PTE score>",
+  "correction": "<specific correction with before/after example>",
+  "rule": "<the grammar/pronunciation/vocabulary rule that applies>",
+  "practiceExercise": "<a specific 5-minute exercise to practise this>",
+  "relatedErrors": ["<related error 1>", "<related error 2>"]
+}`;
+
+  const userContent = `Task Type: ${params.taskType.replace(/_/g, " ")}
+Error Type: ${params.errorType}
+Student's Example: "${params.studentExample}"${params.correctExample ? `\nCorrect Version: "${params.correctExample}"` : ""}`;
+
   try {
     const result = await invokeLLM({
       messages: [
-        {
-          role: "system",
-          content: `You are a PTE Academic tutor. Give a brief, clear explanation of this error and how to fix it. Be encouraging and specific. Return JSON: {"explanation": "<2 sentences>", "tip": "<1 actionable tip>", "example": "<corrected example>"}`
-        },
-        {
-          role: "user",
-          content: `Task: ${params.taskType}\nError: ${params.errorType}\nStudent wrote: "${params.studentExample}"\n${params.correctExample ? `Correct: "${params.correctExample}"` : ""}`
-        }
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
       ],
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "micro_feedback",
+          name: "micro_feedback_v2",
           strict: true,
           schema: {
             type: "object",
             properties: {
               explanation: { type: "string" },
-              tip: { type: "string" },
-              example: { type: "string" },
+              correction: { type: "string" },
+              rule: { type: "string" },
+              practiceExercise: { type: "string" },
+              relatedErrors: { type: "array", items: { type: "string" } },
             },
-            required: ["explanation", "tip", "example"],
+            required: ["explanation", "correction", "rule", "practiceExercise", "relatedErrors"],
             additionalProperties: false,
           },
         },
       },
     });
+
     const content = result.choices[0]?.message?.content as string;
     return JSON.parse(content || "{}");
-  } catch {
+  } catch (err) {
+    console.error("Micro feedback error:", err);
     return {
-      explanation: "This is a common error in PTE Academic tasks.",
-      tip: "Review this area and practice with similar examples.",
-      example: params.correctExample || "See the model answer for reference.",
+      explanation: "Detailed explanation temporarily unavailable.",
+      correction: params.correctExample ?? "Please review the correct form.",
+      rule: "See PTE Academic guidelines for this task type.",
+      practiceExercise: "Practise 5 similar examples daily.",
+      relatedErrors: [],
     };
   }
-}
-
-function getDefaultTaskFeedback(taskType: string, scorePercentage: number): TaskFeedback {
-  const band = scorePercentage >= 85 ? "Excellent"
-    : scorePercentage >= 70 ? "Good"
-    : scorePercentage >= 55 ? "Satisfactory"
-    : scorePercentage >= 40 ? "Needs Improvement"
-    : "Poor";
-
-  return {
-    taskType,
-    overallBand: band as TaskFeedback["overallBand"],
-    scoreBreakdown: [
-      { criterion: "Content", score: Math.round(scorePercentage / 20), maxScore: 5, comment: "Your response addressed the task requirements." },
-      { criterion: "Language", score: Math.round(scorePercentage / 20), maxScore: 5, comment: "Work on improving language accuracy and range." },
-    ],
-    detailedFeedback: `Your response scored ${Math.round(scorePercentage)}% on this ${taskType.replace(/_/g, " ")} task. ${band === "Excellent" ? "Excellent work! You demonstrated strong command of the task requirements." : "There is room for improvement. Focus on the specific areas highlighted below."}`,
-    specificErrors: [],
-    modelAnswer: "Please review the task guidelines and model answers in the learning resources section.",
-    improvementTips: [
-      {
-        priority: "high",
-        skill: "Task Strategy",
-        tip: `For ${taskType.replace(/_/g, " ")} tasks, always read the instructions carefully and plan your response before starting.`,
-        practiceExercise: "Complete 5 similar practice questions daily, reviewing feedback after each attempt.",
-      },
-    ],
-    nextSteps: [
-      "Review the model answer and identify differences from your response",
-      "Practice 3 similar questions focusing on the weakest area",
-      "Record yourself and listen back to identify pronunciation issues",
-    ],
-    estimatedScoreRange: {
-      min: Math.max(10, Math.round(scorePercentage * 0.8)),
-      max: Math.min(90, Math.round(scorePercentage * 0.9 + 10)),
-    },
-  };
-}
-
-function getDefaultCoachingPlan(targetScore: number, currentScore: number): PersonalizedCoachingPlan {
-  const gap = targetScore - currentScore;
-  return {
-    studentLevel: currentScore >= 70 ? "Upper-Intermediate" : currentScore >= 55 ? "Intermediate" : "Elementary",
-    overallAssessment: `You are currently estimated at ${currentScore}/90 with a target of ${targetScore}/90. With focused practice on your weak areas, you can close this ${gap}-point gap within 4-8 weeks.`,
-    targetScore,
-    currentEstimatedScore: currentScore,
-    weeklyPlan: [
-      { week: 1, focus: "Foundation Skills", tasks: ["Complete 10 Read Aloud questions", "Practice 15 Write from Dictation", "Review grammar fundamentals"], targetImprovement: "+3-5 points on Speaking" },
-      { week: 2, focus: "Writing Skills", tasks: ["Write 3 essays with feedback", "Summarize 5 texts", "Study academic vocabulary list"], targetImprovement: "+3-5 points on Writing" },
-      { week: 3, focus: "Reading & Listening", tasks: ["Complete 20 MCQ questions", "Practice Fill in the Blanks daily", "Listen to academic lectures"], targetImprovement: "+3-5 points on Reading/Listening" },
-      { week: 4, focus: "Mock Tests & Consolidation", tasks: ["Complete 2 full mock tests", "Review all weak areas", "Focus on time management"], targetImprovement: "Consolidate all gains" },
-    ],
-    skillGaps: [
-      { skill: "Oral Fluency", currentLevel: currentScore - 5, targetLevel: targetScore, gap: gap + 5, priority: "critical", resources: ["Read Aloud practice daily", "Shadowing technique with native speakers"] },
-      { skill: "Written Discourse", currentLevel: currentScore, targetLevel: targetScore, gap, priority: "important", resources: ["Essay structure templates", "Academic writing guides"] },
-    ],
-    dailyPracticeRecommendation: {
-      totalMinutes: 90,
-      breakdown: [
-        { activity: "Read Aloud (5 questions)", minutes: 20, frequency: "daily" },
-        { activity: "Write from Dictation (10 sentences)", minutes: 15, frequency: "daily" },
-        { activity: "Essay Writing", minutes: 25, frequency: "3x/week" },
-        { activity: "Listening Practice", minutes: 20, frequency: "daily" },
-        { activity: "Vocabulary Review", minutes: 10, frequency: "daily" },
-      ],
-    },
-    motivationalMessage: `You're ${gap} points away from your target. Every practice session brings you closer. Focus on Write from Dictation and Read Aloud as they offer the highest score gains per hour of practice. You've got this!`,
-  };
 }

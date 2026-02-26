@@ -302,15 +302,12 @@ const responsesRouter = router({
       } else if (["reading", "listening"].includes(question.section)) {
         const result = scoreObjectiveTask({
           taskType: question.taskType,
-          correctAnswer: question.correctAnswer,
-          selectedOptions: input.selectedOptions,
-          responseText: input.responseText,
+          correctAnswer: question.correctAnswer ?? "",
+          userAnswer: input.selectedOptions ?? input.responseText ?? "",
         });
         scoreData = {
-          isCorrect: result.isCorrect,
-          totalScore: result.totalScore,
           normalizedScore: result.normalizedScore,
-          contentScore: result.isCorrect ? 1 : 0,
+          contentScore: result.score > 50 ? 1 : 0,
           formScore: 1,
           languageScore: 0.5,
         };
@@ -417,10 +414,9 @@ const aiCoachRouter = router({
       const feedback = await generateTaskFeedback({
         taskType: question.taskType,
         question: question.prompt || question.content || "",
-        studentResponse: response.responseText || response.transcription || "",
+        userResponse: response.responseText || response.transcription || "",
         correctAnswer: question.correctAnswer || undefined,
         score: response.totalScore || 0,
-        maxScore: 100,
         transcription: response.transcription || undefined,
       });
 
@@ -442,13 +438,13 @@ const aiCoachRouter = router({
           taskType: s.sessionType,
           section: s.section || "full",
           score: s.overallScore || 50,
-          maxScore: 90,
-          date: s.completedAt || new Date(),
+          createdAt: s.completedAt || new Date(),
         }));
 
       const plan = await generateCoachingPlan({
         userId: ctx.user.id,
         targetScore: input.targetScore,
+        currentLevel: ctx.user.currentLevel || "intermediate",
         recentScores,
         skillScores: {
           grammar: undefined,
