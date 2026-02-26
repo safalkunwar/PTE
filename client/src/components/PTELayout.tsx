@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -108,12 +109,18 @@ export default function PTELayout({ children, title }: PTELayoutProps) {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar */}
       <aside className={`
@@ -231,8 +238,15 @@ export default function PTELayout({ children, title }: PTELayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-4 lg:p-6 page-transition">
-          {children}
+        <main className="flex-1 overflow-auto p-4 lg:p-6">
+          <motion.div
+            key={location}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
+            {children}
+          </motion.div>
         </main>
       </div>
     </div>

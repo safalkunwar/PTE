@@ -10,6 +10,7 @@ import {
   ChevronRight, Info, Volume2, FileText
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 const sections = [
   { id: "speaking", label: "Speaking", icon: Mic, color: "bg-blue-500", textColor: "text-blue-600", borderColor: "border-blue-200" },
@@ -166,8 +167,8 @@ export default function Practice() {
       <div className="max-w-5xl space-y-6">
         {/* Section tabs */}
         <div className="flex flex-wrap gap-2">
-          {sections.map(({ id, label, icon: Icon, color }) => (
-            <button
+          {sections.map(({ id, label, icon: Icon, color }, i) => (
+            <motion.button
               key={id}
               onClick={() => setActiveSection(id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -175,10 +176,15 @@ export default function Practice() {
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-card border border-border text-foreground hover:bg-muted"
               }`}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.07, duration: 0.3 }}
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
             >
               <Icon className="w-4 h-4" />
               {label}
-            </button>
+            </motion.button>
           ))}
         </div>
 
@@ -216,11 +222,24 @@ export default function Practice() {
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-32 bg-muted rounded-xl animate-pulse" />
+              <motion.div
+                key={i}
+                className="h-32 bg-muted rounded-xl"
+                animate={{ opacity: [0.4, 0.8, 0.4] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
+              />
             ))}
           </div>
         ) : groupedByTaskType && Object.keys(groupedByTaskType).length > 0 ? (
-          <div className="space-y-6">
+          <AnimatePresence mode="wait">
+          <motion.div
+            key={activeSection}
+            className="space-y-6"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+          >
             {Object.entries(groupedByTaskType).map(([taskType, taskQuestions]) => {
               const info = taskTypeInfo[taskType] || { label: taskType, description: "", time: "—", tips: "" };
               return (
@@ -284,7 +303,8 @@ export default function Practice() {
                 </Card>
               );
             })}
-          </div>
+          </motion.div>
+          </AnimatePresence>
         ) : (
           <Card>
             <CardContent className="py-12 text-center">

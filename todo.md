@@ -158,3 +158,21 @@
 - [ ] Add written discourse coherence scoring (cohesive devices, paragraph structure)
 - [ ] Write AI scoring accuracy tests with known-score reference responses
 - [ ] Add score normalization calibration table aligned to PTE 10-90 scale
+
+## Phase 7 — System Audit, Concurrency & Premium Animations
+- [ ] Audit all DB queries for user-scoped WHERE clauses (no data leakage between users)
+- [ ] Audit session creation/management for per-user isolation
+- [ ] Audit SRS cards for per-user isolation
+- [ ] Audit audio upload endpoint for per-user file namespacing
+- [ ] Fix any shared mutable state in server-side code
+- [ ] Add framer-motion page transitions (fade+slide between routes)
+- [ ] Add staggered list animations on Practice page task cards
+- [ ] Add animated score counter on Dashboard and ScoreReport
+- [ ] Add premium waveform animation in SpeakingTask
+- [ ] Add skeleton loading states for all data-fetching components
+- [ ] Add hover micro-interactions on all cards and buttons
+- [ ] Add smooth accordion animations on AIFeedbackPanel
+- [ ] Add animated progress bars with spring physics
+- [ ] Add confetti/celebration animation on high scores
+- [ ] Add smooth sidebar navigation highlight transitions
+- [ ] Lazy load heavy pages (Analytics, MockTest, RevisionMode)

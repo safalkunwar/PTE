@@ -6,6 +6,9 @@ import {
   ChevronRight, Star, Users, Trophy, Clock, CheckCircle, ArrowRight,
   Zap, Shield, TrendingUp, Play
 } from "lucide-react";
+import { motion, useInView } from "framer-motion";
+import { useRef } from "react";
+import { AnimatedCounter } from "@/components/AnimatedCounter";
 
 const TASK_TYPES = [
   { section: "Speaking", color: "bg-blue-500", tasks: ["Read Aloud", "Repeat Sentence", "Describe Image", "Re-tell Lecture", "Answer Short Question"], icon: Mic },
@@ -79,7 +82,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* ── Top Navigation ── */}
+      {/* -- Top Navigation -- */}
       <nav className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -123,7 +126,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ── Hero Section ── */}
+      {/* -- Hero Section -- */}
       <section className="relative overflow-hidden bg-gradient-to-br from-teal-50 via-white to-cyan-50 pt-16 pb-20">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-40 -right-40 w-96 h-96 bg-teal-100 rounded-full opacity-40 blur-3xl" />
@@ -133,21 +136,38 @@ export default function Home() {
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left: Text */}
-            <div>
-              <div className="inline-flex items-center gap-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
+              <motion.div
+                className="inline-flex items-center gap-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs font-semibold px-3 py-1.5 rounded-full mb-6"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1, duration: 0.4 }}
+              >
                 <Zap className="w-3.5 h-3.5" />
                 AI-Powered PTE Academic Preparation
-              </div>
-
-              <h1 className="text-4xl lg:text-5xl font-extrabold text-gray-900 leading-tight mb-6">
+              </motion.div>
+              <motion.h1
+                className="text-4xl lg:text-5xl font-extrabold text-gray-900 leading-tight mb-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2, duration: 0.5 }}
+              >
                 Achieve Your
                 <span className="text-teal-600"> Target PTE Score</span>
                 <br />Faster with AI
-              </h1>
-
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
+              </motion.h1>
+              <motion.p
+                className="text-lg text-gray-600 mb-8 leading-relaxed"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, duration: 0.5 }}
+              >
                 Practice all 20 PTE Academic task types with instant AI scoring, personalized coaching plans, and detailed feedback that mirrors the official Pearson scoring engine.
-              </p>
+              </motion.p>
 
               {/* Score target selector */}
               <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 mb-8">
@@ -199,8 +219,7 @@ export default function Home() {
                   <p className="text-xs text-gray-500">Trusted by 10,000+ PTE candidates</p>
                 </div>
               </div>
-            </div>
-
+            </motion.div>
             {/* Right: Score Card Preview */}
             <div className="relative">
               <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
@@ -284,22 +303,33 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Stats Bar ── */}
+      {/* -- Stats Bar -- */}
       <section className="bg-teal-600 py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <motion.div
+            className="grid grid-cols-2 md:grid-cols-4 gap-6"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.1 } } }}
+          >
             {STATS.map(s => (
-              <div key={s.label} className="text-center">
+              <motion.div
+                key={s.label}
+                className="text-center"
+                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+                transition={{ duration: 0.5 }}
+              >
                 <s.icon className="w-6 h-6 text-teal-200 mx-auto mb-2" />
                 <p className="text-3xl font-extrabold text-white">{s.value}</p>
                 <p className="text-teal-200 text-sm">{s.label}</p>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 
-      {/* ── Task Types Section ── */}
+      {/* -- Task Types Section -- */}
       <section id="tasks" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -309,9 +339,21 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <motion.div
+            className="grid grid-cols-2 md:grid-cols-4 gap-4"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-50px" }}
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+          >
             {TASK_TYPES.map(section => (
-              <div key={section.section} className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
+              <motion.div
+                key={section.section}
+                className="bg-white rounded-2xl border border-gray-200 overflow-hidden"
+                variants={{ hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } }}
+                transition={{ duration: 0.4 }}
+                whileHover={{ y: -4, boxShadow: "0 12px 32px rgba(0,0,0,0.10)" }}
+              >
                 <div className={`${section.color} px-5 py-4`}>
                   <section.icon className="w-6 h-6 text-white mb-2" />
                   <h3 className="text-white font-bold text-lg">{section.section}</h3>
@@ -333,13 +375,12 @@ export default function Home() {
                     Practice Now <ChevronRight className="w-4 h-4" />
                   </a>
                 </div>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
-
-      {/* ── Features Section ── */}
+      {/* -- Features Section -- */}
       <section id="features" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -363,7 +404,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Score Guide Section ── */}
+      {/* -- Score Guide Section -- */}
       <section id="scores" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
@@ -406,7 +447,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Learning Modes ── */}
+      {/* -- Learning Modes -- */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -458,7 +499,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── CTA Section ── */}
+      {/* -- CTA Section -- */}
       <section className="py-20 bg-gradient-to-br from-teal-600 to-cyan-700">
         <div className="max-w-3xl mx-auto px-4 text-center">
           <Trophy className="w-12 h-12 text-yellow-300 mx-auto mb-6" />
@@ -477,7 +518,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Footer ── */}
+      {/* -- Footer -- */}
       <footer className="bg-gray-900 text-gray-400 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-4 gap-8 mb-8">

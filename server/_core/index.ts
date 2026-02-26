@@ -36,12 +36,21 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 
-  // Audio upload endpoint for speaking tasks
+  // Audio upload endpoint for speaking tasks (auth-gated, per-user namespaced)
   app.post("/api/upload-audio", express.raw({ type: "audio/*", limit: "20mb" }), async (req, res) => {
     try {
+      // Verify session before allowing upload
+      const { sdk } = await import("./sdk");
+      let user: import("../../drizzle/schema").User | null = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
       const { storagePut } = await import("../storage");
       const nanoid = (await import("nanoid")).nanoid;
-      const key = `audio/${nanoid()}.webm`;
+      // Namespace by userId to prevent enumeration and cross-user collisions
+      const key = `audio/user-${user.id}/${nanoid()}.webm`;
       const buffer = req.body as Buffer;
       const { url } = await storagePut(key, buffer, "audio/webm");
       res.json({ url, key });

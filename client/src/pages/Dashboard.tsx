@@ -8,6 +8,10 @@ import {
   Trophy, Clock, Flame, TrendingUp, Play, Brain, Zap, CheckCircle2
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
+import { AnimatedCounter } from "@/components/AnimatedCounter";
+import { AnimatedProgressBar } from "@/components/AnimatedProgressBar";
+import { pageVariants, staggerContainer, staggerItem, cardHover } from "@/lib/animations";
 
 const NAV_ITEMS = [
   { icon: Home,      label: "Home",         href: "/dashboard" },
@@ -108,8 +112,17 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#F5F7FA" }}>
         <div className="text-center">
-          <div className="w-10 h-10 rounded-full border-4 border-t-transparent mx-auto mb-3 animate-spin" style={{ borderColor: "#26C6DA", borderTopColor: "transparent" }} />
-          <p className="text-gray-500 text-sm">Loading...</p>
+          <motion.div
+            className="w-10 h-10 rounded-full border-4 mx-auto mb-3"
+            style={{ borderColor: "#26C6DA", borderTopColor: "transparent" }}
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+          />
+          <motion.p
+            className="text-gray-500 text-sm"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >Loading...</motion.p>
         </div>
       </div>
     );
@@ -163,9 +176,20 @@ export default function Dashboard() {
         </header>
 
         <main className="flex-1 p-6 overflow-auto">
-          <div className="max-w-6xl mx-auto space-y-5">
+          <motion.div
+            className="max-w-6xl mx-auto space-y-5"
+            variants={pageVariants}
+            initial="initial"
+            animate="animate"
+          >
             {/* Exam banner */}
-            <div className="rounded-xl p-4 text-white flex items-center justify-between" style={{ background: "linear-gradient(135deg, #26C6DA 0%, #00ACC1 100%)" }}>
+            <motion.div
+              className="rounded-xl p-4 text-white flex items-center justify-between"
+              style={{ background: "linear-gradient(135deg, #26C6DA 0%, #00ACC1 100%)" }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+            >
               <div className="flex items-center gap-3">
                 <Target className="w-5 h-5" />
                 <div>
@@ -177,7 +201,7 @@ export default function Dashboard() {
                 <p className="text-2xl font-bold">180</p>
                 <p className="text-xs text-white/80">Days to prepare</p>
               </div>
-            </div>
+            </motion.div>
 
             <div className="grid lg:grid-cols-3 gap-5">
               {/* Study Stats */}
@@ -186,19 +210,24 @@ export default function Dashboard() {
                   <h2 className="font-semibold text-gray-900">Study Stats</h2>
                   <Link href="/analytics"><span className="text-xs flex items-center gap-1 cursor-pointer" style={{ color: "#26C6DA" }}>Study Centre <ChevronRight className="w-3 h-3" /></span></Link>
                 </div>
-                <div className="grid grid-cols-3 gap-4 mb-5">
+                <motion.div
+                  className="grid grid-cols-3 gap-4 mb-5"
+                  variants={staggerContainer}
+                  initial="initial"
+                  animate="animate"
+                >
                   {[
                     { value: todayPracticed, label: "Today Practiced", icon: Flame, color: "#EF5350" },
                     { value: totalPracticed, label: "Total Practiced", icon: CheckCircle2, color: "#26C6DA" },
                     { value: analytics?.sessions?.length ? new Set(analytics.sessions.map((s: any) => new Date(s.createdAt).toDateString())).size : 0, label: "Prac. Days", icon: Trophy, color: "#FF9800" },
                   ].map(({ value, label, icon: Icon, color }) => (
-                    <div key={label} className="text-center p-3 rounded-xl" style={{ backgroundColor: `${color}12` }}>
+                    <motion.div key={label} variants={staggerItem} className="text-center p-3 rounded-xl" style={{ backgroundColor: `${color}12` }}>
                       <Icon className="w-5 h-5 mx-auto mb-1" style={{ color }} />
-                      <p className="text-2xl font-bold text-gray-900">{value}</p>
+                      <AnimatedCounter value={value} className="text-2xl font-bold text-gray-900" />
                       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-                    </div>
+                    </motion.div>
                   ))}
-                </div>
+                </motion.div>
                 {/* AI Study Tips */}
                 <div className="border-t border-gray-100 pt-4">
                   <div className="flex items-center justify-between mb-3">
@@ -219,9 +248,7 @@ export default function Dashboard() {
                             <div className="task-badge w-6 h-6 text-[10px]" style={{ backgroundColor: color }}>{code}</div>
                             <div>
                               <p className="text-xs text-gray-500">My: {pct ? `${pct}%` : "--%"}</p>
-                              <div className="w-16 h-1.5 rounded-full mt-0.5" style={{ backgroundColor: "#E0E0E0" }}>
-                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-                              </div>
+                      <AnimatedProgressBar value={pct} height={6} color="" className="w-16" />
                             </div>
                           </div>
                         ))}
@@ -245,9 +272,11 @@ export default function Dashboard() {
                         <span>Progress</span>
                         <span>{todayTarget.completedMinutes || 0}/{todayTarget.targetMinutes} min</span>
                       </div>
-                      <div className="w-full h-2 rounded-full" style={{ backgroundColor: "#E0E0E0" }}>
-                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, ((todayTarget.completedMinutes || 0) / (todayTarget.targetMinutes ?? 30)) * 100)}%`, backgroundColor: "#26C6DA" }} />
-                      </div>
+                              <AnimatedProgressBar
+                        value={Math.min(100, ((todayTarget.completedMinutes || 0) / (todayTarget.targetMinutes ?? 30)) * 100)}
+                        height={8}
+                        color="bg-cyan-500"
+                      />
                       <p className="text-xs text-gray-500 mt-2">Focus: {Array.isArray(todayTarget.focusSkills) ? todayTarget.focusSkills.join(", ") : "All skills"}</p>
                     </div>
                   ) : (
@@ -291,9 +320,16 @@ export default function Dashboard() {
                   { icon: Target,     label: "Mock Tests",   desc: "Test & know your scores",        color: "#26C6DA", href: "/mock-test" },
                   { icon: Zap,        label: "Study Modes",  desc: "Beginner to exam mode",          color: "#9C27B0", href: "/learning-modes" },
                   { icon: TrendingUp, label: "Progress",     desc: "Track your improvement",         color: "#4CAF50", href: "/analytics" },
-                ].map(({ icon: Icon, label, desc, color, href }) => (
+                ].map(({ icon: Icon, label, desc, color, href }, i) => (
                   <Link key={label} href={href}>
-                    <div className="flex items-center gap-3 p-4 rounded-xl border border-gray-100 hover:shadow-md transition-all cursor-pointer">
+                    <motion.div
+                      className="flex items-center gap-3 p-4 rounded-xl border border-gray-100 cursor-pointer"
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.07, duration: 0.35 }}
+                      whileHover={{ y: -3, boxShadow: "0 8px 24px rgba(0,0,0,0.10)", borderColor: color }}
+                      whileTap={{ scale: 0.97 }}
+                    >
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}15` }}>
                         <Icon className="w-5 h-5" style={{ color }} />
                       </div>
@@ -301,7 +337,7 @@ export default function Dashboard() {
                         <p className="text-sm font-semibold text-gray-900">{label}</p>
                         <p className="text-xs text-gray-500">{desc}</p>
                       </div>
-                    </div>
+                    </motion.div>
                   </Link>
                 ))}
               </div>
@@ -314,12 +350,19 @@ export default function Dashboard() {
                 <Link href="/practice"><span className="text-xs cursor-pointer" style={{ color: "#26C6DA" }}>View All &gt;</span></Link>
               </div>
               <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-                {SECTION_TASKS.map(({ code, label, color, href }) => (
+                {SECTION_TASKS.map(({ code, label, color, href }, i) => (
                   <Link key={code} href={href}>
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-100 hover:border-teal-200 hover:bg-teal-50/30 transition-all cursor-pointer">
+                    <motion.div
+                      className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-100 cursor-pointer"
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.04, duration: 0.25 }}
+                      whileHover={{ borderColor: color, backgroundColor: `${color}10`, scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
                       <div className="task-badge w-7 h-7 text-[10px] flex-shrink-0" style={{ backgroundColor: color }}>{code}</div>
                       <span className="text-xs text-gray-600 leading-tight hidden md:block">{label}</span>
-                    </div>
+                    </motion.div>
                   </Link>
                 ))}
               </div>
@@ -361,7 +404,8 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-          </div>
+
+          </motion.div>
         </main>
       </div>
     </div>
