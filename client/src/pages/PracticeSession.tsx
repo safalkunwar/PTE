@@ -34,6 +34,10 @@ interface TaskResult {
 function CountdownTimer({ seconds, onExpire, urgent = false }: { seconds: number; onExpire: () => void; urgent?: boolean }) {
   const [remaining, setRemaining] = useState(seconds);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // Stable ref so the interval callback always calls the latest onExpire
+  // without needing it as a dependency (avoids re-creating the interval).
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
   useEffect(() => {
     setRemaining(seconds);
@@ -41,20 +45,23 @@ function CountdownTimer({ seconds, onExpire, urgent = false }: { seconds: number
 
   useEffect(() => {
     if (remaining <= 0) {
-      onExpire();
-      return;
+      // Defer out of the render phase to avoid "setState during render" warning
+      const t = setTimeout(() => onExpireRef.current(), 0);
+      return () => clearTimeout(t);
     }
     intervalRef.current = setInterval(() => {
       setRemaining(prev => {
         if (prev <= 1) {
           clearInterval(intervalRef.current);
-          onExpire();
+          // Defer here too — the setRemaining updater runs inside React internals
+          setTimeout(() => onExpireRef.current(), 0);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(intervalRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const mins = Math.floor(remaining / 60);
