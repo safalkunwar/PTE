@@ -240,3 +240,29 @@
 - [x] Fix analytics.todayTarget: getTodayTarget now returns null instead of undefined
 - [x] Verified getUserAnalytics and getUserMilestones already return null/[] (safe)
 - [x] All 84 tests passing, 0 TypeScript errors
+
+## Phase 12 — Speaking Section: Missing Task Types & Reorder
+- [ ] Research official PTE Speaking section order and rubrics for Respond to a Situation and Summarize Group Discussion
+- [ ] Add respond_to_situation and summarize_group_discussion to taskType enum in schema
+- [ ] Run DB migration for new task types
+- [ ] Seed 10+ questions for Respond to a Situation
+- [ ] Seed 10+ questions for Summarize Group Discussion
+- [ ] Expand existing speaking questions (Read Aloud, Repeat Sentence, Describe Image, Re-tell Lecture, Answer Short Question)
+- [ ] Build UI component for Respond to a Situation (situation prompt + 30s prep + 40s response)
+- [ ] Build UI component for Summarize Group Discussion (audio/transcript + 10s prep + 90s response)
+- [ ] Add AI scoring for Respond to a Situation (content relevance, fluency, pronunciation)
+- [ ] Add AI scoring for Summarize Group Discussion (content coverage, fluency, pronunciation)
+- [ ] Reorder speaking tasks in Practice page to match official PTE exam order
+- [ ] Update PTELayout sidebar to show correct speaking task order
+- [ ] All tests passing, 0 TypeScript errors
+
+## Phase 13 — Full Task Audit, Fix & AI Efficiency (IN PROGRESS)
+- [ ] Add SECTION_TASK_ORDER map to Practice.tsx for correct official PTE task ordering
+- [ ] Add summarize_group_discussion and respond_to_situation to taskTypeInfo in Practice.tsx
+- [ ] Update speaking section description to show 7 task types
+- [ ] Audit PracticeSession: verify all 20 task types render correctly
+- [ ] Fix any broken task rendering (missing UI, wrong component, wrong timer)
+- [ ] Fix aiScoringRouter to handle new task types (respond_to_situation, summarize_group_discussion)
+- [ ] Optimize AI engines: reduce prompt token count, keep accuracy
+- [ ] Add timeout/fallback: if AI takes >15s, return deterministic score
+- [ ] All tests passing, 0 TypeScript errors

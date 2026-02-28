@@ -1133,8 +1133,7 @@ Respond ONLY with valid JSON:`;
   return JSON.parse(response.choices[0].message.content as string) as SpeakingScoreResult;
 }
 
-// ─── Helper: Detect Repetitions ───────────────────────────────────────────────
-
+/// ─── Helper: Detect Repetitions ───────────────────────────────────────────────
 function detectRepetitions(text: string): number {
   const words = tokenize(text);
   let count = 0;
@@ -1142,6 +1141,198 @@ function detectRepetitions(text: string): number {
     if (words[i] === words[i - 1]) count++;
   }
   return count;
+}
+
+// ─── Score Respond to a Situation ────────────────────────────────────────────
+export async function scoreRespondToSituation(params: {
+  situationText: string;
+  transcription: string;
+  wpm?: number;
+  pauseCount?: number;
+}): Promise<SpeakingScoreResult> {
+  const { situationText, transcription, wpm = 0, pauseCount = 0 } = params;
+  const wordCount = tokenize(transcription).length;
+  const repetitions = detectRepetitions(transcription);
+  const deterministic = [
+    "DETERMINISTIC PRE-ANALYSIS:",
+    `  Response word count: ${wordCount} (target: 30-80 words for 40s)`,
+    `  Estimated WPM: ${wpm}`,
+    `  Detected repetitions: ${repetitions}`,
+    `  Blank response: ${wordCount === 0 ? "YES" : "NO"}`,
+  ].join("\n");
+
+  const prompt = [
+    "You are a certified PTE Academic examiner scoring a Respond to a Situation task.",
+    "",
+    "OFFICIAL SCORING CRITERIA (Pearson PTE Academic):",
+    "  Pronunciation (0-5): Intelligibility of individual sounds, stress, intonation, rhythm.",
+    "    5=Native-like; 4=Minor accent, fully intelligible; 3=Noticeable accent, mostly clear;",
+    "    2=Frequent errors, sometimes unclear; 1=Heavy accent, hard to follow; 0=Unintelligible",
+    "  Oral Fluency (0-5): Smooth, natural delivery without unnatural pauses or hesitations.",
+    "    5=Effortless; 4=Minor hesitations; 3=Some pauses but recovers;",
+    "    2=Frequent pauses, choppy; 1=Very halting; 0=No meaningful speech",
+    "  Content (0-5): Relevance and completeness - does the response address the situation?",
+    "    5=Fully addresses all key points, appropriate register, polite and natural;",
+    "    4=Addresses most points, minor omissions; 3=Addresses core issue, some points missed;",
+    "    2=Partially relevant; 1=Barely relevant; 0=Off-topic or blank",
+    "",
+    "CALIBRATION ANCHORS:",
+    "  C2: Fully addresses situation with natural register, polite phrasing, all key points covered. Pronunciation:5, Fluency:5, Content:5",
+    "  C1: Addresses situation clearly, minor omissions, natural language. Pronunciation:4, Fluency:4, Content:4",
+    "  B2: Addresses core issue, some points missed, some hesitations. Pronunciation:3, Fluency:3, Content:3",
+    "  B1: Partially relevant, limited vocabulary, multiple hesitations. Pronunciation:2, Fluency:2, Content:2",
+    "",
+    "TASK INPUT:",
+    `SITUATION: "${situationText}"`,
+    `TEST TAKER RESPONSE: "${transcription}"`,
+    deterministic,
+    "",
+    "CHAIN-OF-THOUGHT:",
+    "  a) Does the response address the situation's core issue? (Content)",
+    "  b) Is the language appropriate for the context (register, politeness)? (Content)",
+    "  c) How natural and fluent is the delivery? (Oral Fluency)",
+    "  d) How clear and intelligible is the pronunciation? (Pronunciation)",
+    "  e) Assign scores based on the calibration anchors above.",
+    "",
+    "Respond ONLY with valid JSON:",
+  ].join("\n");
+
+  const response = await invokeLLM({
+    messages: [
+      { role: "system", content: "You are a certified PTE Academic examiner. Return ONLY valid JSON." },
+      { role: "user", content: prompt },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "respond_to_situation_score",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            taskType: { type: "string" },
+            overallScore: { type: "integer" },
+            traits: {
+              type: "object",
+              properties: {
+                pronunciation: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+                oralFluency: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+                content: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+              },
+              required: ["pronunciation", "oralFluency", "content"],
+              additionalProperties: false,
+            },
+            cefrLevel: { type: "string" },
+            overallFeedback: { type: "string" },
+            strengths: { type: "array", items: { type: "string" } },
+            improvements: { type: "array", items: { type: "string" } },
+            strategyTips: { type: "array", items: { type: "string" } },
+          },
+          required: ["taskType", "overallScore", "traits", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  return JSON.parse(response.choices[0].message.content as string) as SpeakingScoreResult;
+}
+
+// ─── Score Summarize Group Discussion ────────────────────────────────────────
+export async function scoreSummarizeGroupDiscussion(params: {
+  discussionTranscript: string;
+  transcription: string;
+  wpm?: number;
+  pauseCount?: number;
+}): Promise<SpeakingScoreResult> {
+  const { discussionTranscript, transcription, wpm = 0 } = params;
+  const wordCount = tokenize(transcription).length;
+  const repetitions = detectRepetitions(transcription);
+  const speakerMatchResults = Array.from(discussionTranscript.matchAll(/^([A-Z][a-z]+):/gm));
+  const speakerNamesRaw = speakerMatchResults.map((m) => m[1]);
+  const speakerNames = speakerNamesRaw.filter((v, i, a) => a.indexOf(v) === i);
+  const speakersCovered = speakerNames.filter((name) =>
+    transcription.toLowerCase().includes(name.toLowerCase())
+  );
+  const deterministic = [
+    "DETERMINISTIC PRE-ANALYSIS:",
+    `  Response word count: ${wordCount} (target: 60-120 words for 90s)`,
+    `  Estimated WPM: ${wpm}`,
+    `  Detected repetitions: ${repetitions}`,
+    `  Discussion speakers: [${speakerNames.join(", ")}]`,
+    `  Speakers mentioned in response: [${speakersCovered.join(", ")}] (${speakersCovered.length}/${speakerNames.length})`,
+    `  Blank response: ${wordCount === 0 ? "YES" : "NO"}`,
+  ].join("\n");
+
+  const prompt = [
+    "You are a certified PTE Academic examiner scoring a Summarize Group Discussion task.",
+    "",
+    "OFFICIAL SCORING CRITERIA (Pearson PTE Academic):",
+    "  Pronunciation (0-5): Intelligibility of individual sounds, stress, intonation, rhythm.",
+    "  Oral Fluency (0-5): Smooth, natural delivery without unnatural pauses or hesitations.",
+    "  Content (0-5): Coverage of all speakers' main points and the discussion's overall conclusion.",
+    "    5=All speakers' key points covered, overall conclusion clear, well-organised;",
+    "    4=Most speakers covered, minor omissions; 3=Core points covered, some speakers missed;",
+    "    2=Only 1-2 speakers mentioned, key points missing; 1=Very little relevant content; 0=Off-topic",
+    "",
+    "CALIBRATION ANCHORS:",
+    "  C2: All speakers named, all key points covered, conclusion stated clearly. Pronunciation:5, Fluency:5, Content:5",
+    "  C1: Most speakers covered, minor omissions, clear conclusion. Pronunciation:4, Fluency:4, Content:4",
+    "  B2: Core points covered, some speakers missed, acceptable fluency. Pronunciation:3, Fluency:3, Content:2-3",
+    "  B1: Only 1-2 speakers mentioned, key points missing, hesitant. Pronunciation:2, Fluency:2, Content:1",
+    "",
+    "TASK INPUT:",
+    `GROUP DISCUSSION TRANSCRIPT: "${discussionTranscript.substring(0, 1200)}"`,
+    `TEST TAKER SUMMARY RESPONSE: "${transcription}"`,
+    deterministic,
+    "",
+    "CHAIN-OF-THOUGHT:",
+    "  a) How many speakers' main points are covered? (Content)",
+    "  b) Is the overall conclusion or consensus mentioned? (Content)",
+    "  c) How natural and fluent is the delivery? (Oral Fluency)",
+    "  d) How clear and intelligible is the pronunciation? (Pronunciation)",
+    "  e) Assign scores based on the calibration anchors above.",
+    "",
+    "Respond ONLY with valid JSON:",
+  ].join("\n");
+
+  const response = await invokeLLM({
+    messages: [
+      { role: "system", content: "You are a certified PTE Academic examiner. Return ONLY valid JSON." },
+      { role: "user", content: prompt },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "summarize_group_discussion_score",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            taskType: { type: "string" },
+            overallScore: { type: "integer" },
+            traits: {
+              type: "object",
+              properties: {
+                pronunciation: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+                oralFluency: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+                content: { type: "object", properties: { score: { type: "integer" }, maxScore: { type: "integer" }, feedback: { type: "string" } }, required: ["score", "maxScore", "feedback"], additionalProperties: false },
+              },
+              required: ["pronunciation", "oralFluency", "content"],
+              additionalProperties: false,
+            },
+            cefrLevel: { type: "string" },
+            overallFeedback: { type: "string" },
+            strengths: { type: "array", items: { type: "string" } },
+            improvements: { type: "array", items: { type: "string" } },
+            strategyTips: { type: "array", items: { type: "string" } },
+          },
+          required: ["taskType", "overallScore", "traits", "cefrLevel", "overallFeedback", "strengths", "improvements", "strategyTips"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  return JSON.parse(response.choices[0].message.content as string) as SpeakingScoreResult;
 }
 
 // ─── Main Dispatcher ──────────────────────────────────────────────────────────
@@ -1196,7 +1387,20 @@ export async function scoreSpeakingTask(params: {
         correctAnswer: params.correctAnswer || "",
         transcription,
       });
-
+    case "respond_to_situation":
+      return scoreRespondToSituation({
+        situationText: params.originalText || "",
+        transcription,
+        wpm: params.wpm,
+        pauseCount: params.pauseCount,
+      });
+    case "summarize_group_discussion":
+      return scoreSummarizeGroupDiscussion({
+        discussionTranscript: params.originalText || params.lectureTranscript || "",
+        transcription,
+        wpm: params.wpm,
+        pauseCount: params.pauseCount,
+      });
     default:
       return scoreReadAloud({
         originalText: params.originalText || "",

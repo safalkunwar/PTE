@@ -33,7 +33,7 @@ export type InsertUser = typeof users.$inferInsert;
 export const questions = mysqlTable("questions", {
   id: int("id").autoincrement().primaryKey(),
   section: mysqlEnum("section", ["speaking", "writing", "reading", "listening"]).notNull(),
-  taskType: varchar("taskType", { length: 64 }).notNull(), // read_aloud, repeat_sentence, describe_image, retell_lecture, answer_short_question, summarize_written_text, write_essay, multiple_choice_single, multiple_choice_multiple, reorder_paragraphs, fill_blanks_reading, fill_blanks_rw, summarize_spoken_text, fill_blanks_listening, highlight_correct_summary, select_missing_word, highlight_incorrect_words, write_from_dictation
+  taskType: varchar("taskType", { length: 64 }).notNull(), // read_aloud, repeat_sentence, describe_image, retell_lecture, answer_short_question, summarize_group_discussion, respond_to_situation, summarize_written_text, write_essay, multiple_choice_single, multiple_choice_multiple, reorder_paragraphs, fill_blanks_reading, fill_blanks_rw, summarize_spoken_text, fill_blanks_listening, highlight_correct_summary, select_missing_word, highlight_incorrect_words, write_from_dictation
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   prompt: text("prompt"), // instruction text

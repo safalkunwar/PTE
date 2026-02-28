@@ -304,7 +304,7 @@ function TraitBar({ label, score, maxScore, feedback, color = "blue" }: {
 
 // Score display component
 function ScoreDisplay({ result, taskType }: { result: TaskResult; taskType: string }) {
-  const isSpeaking = ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question"].includes(taskType);
+  const isSpeaking = ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question", "respond_to_situation", "summarize_group_discussion"].includes(taskType);
   const isObjective = ["multiple_choice_single", "multiple_choice_multiple", "reorder_paragraphs",
     "fill_blanks_reading", "fill_blanks_rw", "highlight_correct_summary", "select_missing_word",
     "highlight_incorrect_words", "write_from_dictation"].includes(taskType);
@@ -530,7 +530,7 @@ export default function PracticeSession() {
     }
   }, [question]);
 
-  const isSpeakingTask = question && ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question"].includes(question.taskType);
+  const isSpeakingTask = question && ["read_aloud", "repeat_sentence", "describe_image", "retell_lecture", "answer_short_question", "respond_to_situation", "summarize_group_discussion"].includes(question.taskType);
   const isWritingTask = question && ["summarize_written_text", "write_essay"].includes(question.taskType);
   const isObjectiveTask = question && !isSpeakingTask && !isWritingTask;
 
@@ -717,7 +717,7 @@ export default function PracticeSession() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Content display — skip describe_image (handled inside SpeakingTask) and repeat_sentence (audio only) */}
-            {question.content && !["-reorder_paragraphs", "fill_blanks_rw", "describe_image", "repeat_sentence"].includes(question.taskType) && (
+             {question.content && !["reorder_paragraphs", "describe_image", "repeat_sentence", "respond_to_situation", "summarize_group_discussion"].includes(question.taskType) && (
               <div className="bg-muted/50 rounded-xl p-4 border border-border">
                 <p className="text-sm text-foreground leading-relaxed">{question.content as string}</p>
               </div>
@@ -895,6 +895,90 @@ export default function PracticeSession() {
                     {opt.text}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Highlight incorrect words — click words to select them */}
+            {question.taskType === "highlight_incorrect_words" && !result && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">Click on the words that are incorrect or out of place:</p>
+                <div className="bg-muted/50 rounded-xl p-4 border border-border">
+                  <div className="flex flex-wrap gap-2">
+                    {(question.content as string)?.split(/\s+/).map((word, idx) => {
+                      const cleanWord = word.replace(/[^\w]/g, '');
+                      const isSelected = selectedOptions.includes(cleanWord);
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const wordToToggle = cleanWord;
+                            if (selectedOptions.includes(wordToToggle)) {
+                              setSelectedOptions(selectedOptions.filter(w => w !== wordToToggle));
+                            } else {
+                              setSelectedOptions([...selectedOptions, wordToToggle]);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                            isSelected
+                              ? "bg-red-500 text-white border-2 border-red-600"
+                              : "bg-white text-foreground border-2 border-border hover:border-primary cursor-pointer"
+                          }`}
+                        >
+                          {word}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Selected: {selectedOptions.length > 0 ? selectedOptions.join(", ") : "None"}
+                </div>
+              </div>
+            )}
+
+            {/* Fill in the blanks (Reading & Writing) — dropdown selects for each blank */}
+            {question.taskType === "fill_blanks_rw" && !result && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">Select the correct word for each blank:</p>
+                <div className="bg-muted/50 rounded-xl p-4 border border-border space-y-3">
+                  {options.map((opt, idx) => (
+                    <div key={opt.id} className="flex items-center gap-3">
+                      <span className="text-xs font-semibold text-muted-foreground min-w-fit">Blank {idx + 1}:</span>
+                      <select
+                        value={selectedOptions[idx] || ""}
+                        onChange={(e) => {
+                          const newSelected = [...selectedOptions];
+                          newSelected[idx] = e.target.value;
+                          setSelectedOptions(newSelected);
+                        }}
+                        className="flex-1 px-3 py-2 rounded-lg border border-border bg-card text-sm text-foreground"
+                      >
+                        <option value="">-- Select an option --</option>
+                        {opt.text.split(",").map((choice, cidx) => (
+                          <option key={cidx} value={choice.trim()}>
+                            {choice.trim()}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Summarize spoken text — listening task requiring written response */}
+            {question.taskType === "summarize_spoken_text" && !result && (
+              <div className="space-y-3">
+                <Textarea
+                  value={textResponse}
+                  onChange={(e) => setTextResponse(e.target.value)}
+                  placeholder="Listen to the audio and write a summary (50–70 words)..."
+                  className="min-h-[120px] text-sm resize-none"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Word count: {textResponse.trim().split(/\s+/).filter(Boolean).length}</span>
+                  <span>Target: 50–70 words</span>
+                </div>
               </div>
             )}
 

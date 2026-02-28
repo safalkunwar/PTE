@@ -26,11 +26,13 @@ import {
 // ─── Task timing config (seconds) ────────────────────────────────────────────
 
 export const SPEAKING_TIMINGS: Record<string, { prep: number; record: number; label: string }> = {
-  read_aloud:           { prep: 40, record: 40, label: "Read Aloud" },
-  repeat_sentence:      { prep: 0,  record: 15, label: "Repeat Sentence" },
-  describe_image:       { prep: 25, record: 40, label: "Describe Image" },
-  retell_lecture:       { prep: 10, record: 40, label: "Re-tell Lecture" },
-  answer_short_question:{ prep: 3,  record: 10, label: "Answer Short Question" },
+  read_aloud:                  { prep: 40, record: 40, label: "Read Aloud" },
+  repeat_sentence:             { prep: 0,  record: 15, label: "Repeat Sentence" },
+  describe_image:              { prep: 25, record: 40, label: "Describe Image" },
+  retell_lecture:              { prep: 10, record: 40, label: "Re-tell Lecture" },
+  answer_short_question:       { prep: 3,  record: 10, label: "Answer Short Question" },
+  summarize_group_discussion:  { prep: 10, record: 90, label: "Summarize Group Discussion" },
+  respond_to_situation:        { prep: 10, record: 40, label: "Respond to a Situation" },
 };
 
 // ─── Word alignment types ─────────────────────────────────────────────────────
@@ -724,6 +726,8 @@ export default function SpeakingTask({
               {taskType === "describe_image" && <p className="text-sm text-teal-700">Study the image above. Plan what you will say about the key features, trends, or comparisons.</p>}
               {taskType === "retell_lecture" && <p className="text-sm text-teal-700">Review your notes. Organise the main points you heard in the lecture.</p>}
               {taskType === "answer_short_question" && <p className="text-sm text-teal-700">Think of your answer. Speak clearly and concisely when recording starts.</p>}
+              {taskType === "respond_to_situation" && <p className="text-sm text-teal-700">Read the situation carefully. Plan your response — address the key points and speak naturally as you would in real life.</p>}
+              {taskType === "summarize_group_discussion" && <p className="text-sm text-teal-700">Review the discussion. Plan to summarise each speaker's main point and the overall conclusion.</p>}
             </div>
 
             <div className="bg-white/70 rounded-xl p-3 w-full max-w-sm border border-teal-100">
@@ -734,6 +738,8 @@ export default function SpeakingTask({
                   {taskType === "describe_image" && (<><p>• Identify the main topic of the image</p><p>• Note 2–3 key features or trends</p><p>• Plan an opening, body, and conclusion</p></>)}
                   {taskType === "retell_lecture" && (<><p>• Start with the main topic</p><p>• Include 2–3 supporting details</p><p>• End with a conclusion or implication</p></>)}
                   {taskType === "answer_short_question" && (<><p>• Give a direct, concise answer</p><p>• One or two words is often enough</p></>)}
+                  {taskType === "respond_to_situation" && (<><p>• Address the person directly (e.g. "Professor, I wanted to...")</p><p>• State the problem, your feelings, and what you need</p><p>• Use polite, natural language</p></>)}
+                  {taskType === "summarize_group_discussion" && (<><p>• Name each speaker and their main point</p><p>• Note areas of agreement and disagreement</p><p>• End with the group's overall conclusion</p></>)}
                 </div>
               </div>
             </div>

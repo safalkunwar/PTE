@@ -39,6 +39,38 @@ const sections = [
   },
 ];
 
+// Official PTE Academic task type ordering for each section
+const taskTypeOrder: Record<string, string[]> = {
+  speaking: [
+    "read_aloud",
+    "repeat_sentence",
+    "describe_image",
+    "retell_lecture",
+    "answer_short_question",
+    "respond_to_situation",
+    "summarize_group_discussion",
+  ],
+  writing: [
+    "summarize_written_text",
+    "write_essay",
+  ],
+  reading: [
+    "multiple_choice_single",
+    "multiple_choice_multiple",
+    "reorder_paragraphs",
+    "fill_blanks_reading",
+    "fill_blanks_rw",
+  ],
+  listening: [
+    "summarize_spoken_text",
+    "fill_blanks_listening",
+    "highlight_correct_summary",
+    "write_from_dictation",
+    "highlight_incorrect_words",
+    "select_missing_word",
+  ],
+};
+
 const taskTypeInfo: Record<string, {
   label: string; description: string; time: string;
   tips: string; scoring: string; difficulty: string; weight: string;
@@ -75,6 +107,24 @@ const taskTypeInfo: Record<string, {
     description: "You will hear a lecture. Re-tell the key points in your own words within the time limit.",
     time: "40 sec",
     tips: "Take notes during the lecture. Mention the topic, main points, and conclusion.",
+    scoring: "Content (max 3) + Pronunciation (max 5) + Oral Fluency (max 5)",
+    difficulty: "Hard",
+    weight: "High Impact",
+  },
+  respond_to_situation: {
+    label: "Respond to a Situation",
+    description: "Read a situation and respond appropriately as if in a real-world conversation.",
+    time: "30 sec",
+    tips: "Use polite, natural language. Address the situation directly. Include relevant details.",
+    scoring: "Content (max 3) + Pronunciation (max 5) + Oral Fluency (max 5)",
+    difficulty: "Medium",
+    weight: "High Impact",
+  },
+  summarize_group_discussion: {
+    label: "Summarize Group Discussion",
+    description: "Listen to a group discussion and summarize the key points in your own words.",
+    time: "40 sec",
+    tips: "Identify each speaker's main point. Mention agreements and disagreements. Conclude with the overall outcome.",
     scoring: "Content (max 3) + Pronunciation (max 5) + Oral Fluency (max 5)",
     difficulty: "Hard",
     weight: "High Impact",
@@ -357,7 +407,14 @@ export default function Practice() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25 }}
             >
-              {Object.entries(groupedByTaskType).map(([taskType, taskQuestions], idx) => {
+              {Object.entries(groupedByTaskType)
+                .sort(([taskTypeA], [taskTypeB]) => {
+                  const order = taskTypeOrder[activeSection] || [];
+                  const indexA = order.indexOf(taskTypeA);
+                  const indexB = order.indexOf(taskTypeB);
+                  return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+                })
+                .map(([taskType, taskQuestions], idx) => {
                 const info = taskTypeInfo[taskType] || {
                   label: taskType, description: "", time: "—",
                   tips: "", scoring: "", difficulty: "Medium", weight: "Medium Impact"
