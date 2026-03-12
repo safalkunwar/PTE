@@ -313,8 +313,12 @@
 - [x] Integrate AdminUserManagement component into admin panel
 - [x] Integrate AdminAnalytics component into admin panel
 - [x] Add PaymentHistory route to App.tsx
+- [x] Create email service with payment receipt, renewal reminder, welcome, and cancellation emails
+- [x] Create public pricing page with plan comparison and FAQ
+- [x] Add Pricing route to App.tsx
+- [x] Implement email notification helpers for payment and subscription events
 - [ ] Implement admin procedures for user management (ban, promote, view details)
 - [ ] Implement admin procedures for analytics queries
-- [ ] Implement subscription auto-renewal logic
+- [ ] Implement subscription auto-renewal background job
 - [ ] Add subscription management page for users
 - [ ] Create subscription plan management UI for admins
