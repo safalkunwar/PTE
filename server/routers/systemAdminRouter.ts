@@ -6,7 +6,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-
+import * as adminDb from "../admin/adminDb";
 /**
  * Admin-only procedure - checks for super admin role
  */
@@ -25,43 +25,41 @@ export const systemAdminRouter = router({
    * Get system health status
    */
   getSystemHealth: adminOnlyProcedure.query(async ({ ctx }) => {
-    // In production, fetch real metrics from monitoring service
-    return {
-      status: "healthy" as const,
-      cpu: Math.floor(Math.random() * 80),
-      memory: Math.floor(Math.random() * 80),
-      database: "connected" as const,
-      api: "operational" as const,
-      uptime: "45 days 12 hours",
-      lastCheck: new Date().toISOString(),
-      services: [
-        { name: "API Server", status: "operational", uptime: "99.9%" },
-        { name: "Database", status: "operational", uptime: "99.95%" },
-        { name: "Cache Server", status: "operational", uptime: "100%" },
-        { name: "Email Service", status: "operational", uptime: "99.8%" },
-        { name: "Payment Gateway", status: "operational", uptime: "99.99%" },
-        { name: "Storage Service", status: "operational", uptime: "99.9%" },
-      ],
-    };
+    try {
+      // In production, fetch real metrics from monitoring service
+      return {
+        status: "healthy" as const,
+        cpu: Math.floor(Math.random() * 80),
+        memory: Math.floor(Math.random() * 80),
+        database: "connected" as const,
+        api: "operational" as const,
+        uptime: "45 days 12 hours",
+        lastCheck: new Date().toISOString(),
+        services: [
+          { name: "API Server", status: "operational", uptime: "99.9%" },
+          { name: "Database", status: "operational", uptime: "99.95%" },
+          { name: "Cache Server", status: "operational", uptime: "100%" },
+          { name: "Email Service", status: "operational", uptime: "99.8%" },
+          { name: "Payment Gateway", status: "operational", uptime: "99.99%" },
+          { name: "Storage Service", status: "operational", uptime: "99.9%" },
+        ],
+      };
+    } catch (error) {
+      console.error("[Admin] Error fetching system health:", error);
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    }
   }),
 
   /**
    * Get system statistics
    */
   getSystemStats: adminOnlyProcedure.query(async ({ ctx }) => {
-    return {
-      totalUsers: 1234,
-      activeUsers: 456,
-      totalSessions: 5678,
-      totalRevenue: 2500000,
-      activeSubscriptions: 350,
-      failedPayments: 12,
-      pendingSupport: 8,
-      systemErrors: 2,
-      apiCalls: 125000,
-      storageUsed: 450, // GB
-      databaseSize: 2.5, // GB
-    };
+    try {
+      return await adminDb.getSystemStatistics();
+    } catch (error) {
+      console.error("[Admin] Error fetching system stats:", error);
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    }
   }),
 
   /**
@@ -76,42 +74,12 @@ export const systemAdminRouter = router({
       })
     )
     .query(async ({ input }) => {
-      // Mock logs - in production, fetch from database
-      const logs = [
-        {
-          id: 1,
-          admin: "John Admin",
-          action: "User Ban",
-          target: "User #1234",
-          timestamp: new Date(Date.now() - 2 * 60000).toISOString(),
-          status: "success" as const,
-          details: "Banned user for violating terms of service",
-        },
-        {
-          id: 2,
-          admin: "Sarah Manager",
-          action: "Plan Update",
-          target: "Pro Plan",
-          timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-          status: "success" as const,
-          details: "Updated Pro plan pricing to ₨1,499",
-        },
-        {
-          id: 3,
-          admin: "Mike Moderator",
-          action: "Content Upload",
-          target: "Reading Questions",
-          timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-          status: "success" as const,
-          details: "Uploaded 50 new reading comprehension questions",
-        },
-      ];
-
-      return {
-        logs: logs.slice(input.offset, input.offset + input.limit),
-        total: logs.length,
-        hasMore: input.offset + input.limit < logs.length,
-      };
+      try {
+        return await adminDb.getUserActivityLogs(input.limit, input.offset);
+      } catch (error) {
+        console.error("[Admin] Error fetching activity logs:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
     }),
 
   /**
@@ -205,6 +173,7 @@ export const systemAdminRouter = router({
    * Get API key management
    */
   getApiKeys: adminOnlyProcedure.query(async () => {
+    // Mock API keys - in production, fetch from secure vault
     return [
       {
         id: "key_1",
@@ -257,6 +226,7 @@ export const systemAdminRouter = router({
    * Get system alerts
    */
   getSystemAlerts: adminOnlyProcedure.query(async () => {
+    // Mock alerts - in production, fetch from monitoring service
     return [
       {
         id: 1,
@@ -305,6 +275,7 @@ export const systemAdminRouter = router({
    * Get system performance metrics
    */
   getPerformanceMetrics: adminOnlyProcedure.query(async () => {
+    // Mock performance metrics - in production, fetch from monitoring service
     return {
       apiResponseTime: "145ms",
       databaseQueryTime: "23ms",
