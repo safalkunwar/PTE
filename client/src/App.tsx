@@ -14,6 +14,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 const Pricing = lazy(() => import("./pages/Pricing"));
+const SystemAdminPanel = lazy(() => import("./pages/SystemAdminPanel"));
 const Practice = lazy(() => import("./pages/Practice"));
 const PracticeSession = lazy(() => import("./pages/PracticeSession"));
 const MockTest = lazy(() => import("./pages/MockTest"));
@@ -60,6 +61,7 @@ function Router() {
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/payments" component={PaymentHistory} />
         <Route path="/pricing" component={Pricing} />
+        <Route path="/system-admin" component={SystemAdminPanel} />
         <Route path="/practice" component={Practice} />
         <Route path="/practice/:section" component={Practice} />
         <Route path="/session/:sessionId" component={PracticeSession} />
