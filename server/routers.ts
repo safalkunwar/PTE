@@ -24,6 +24,7 @@ import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { notifyOwner } from "./_core/notification";
 import { aiScoringRouter } from "./routers/aiScoringRouter";
+import { paymentRouter } from "./routers/paymentRouter";
 
 // Questions router
 const questionsRouter = router({
@@ -685,6 +686,7 @@ export const appRouter = router({
   aiCoach: aiCoachRouter,
   srs: srsRouter,
   aiScoring: aiScoringRouter,
+  payment: paymentRouter,
 });
 
 export type AppRouter = typeof appRouter;

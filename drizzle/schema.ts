@@ -183,6 +183,59 @@ export const srsReviewLogs = mysqlTable("srs_review_logs", {
 
 export type SrsReviewLog = typeof srsReviewLogs.$inferSelect;
 
+// Subscription plans
+export const subscriptionPlans = mysqlTable("subscription_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull(), // Free, Pro, Premium
+  price: int("price").notNull(), // in NPR (Nepali Rupees)
+  interval: mysqlEnum("interval", ["monthly", "yearly"]).notNull(),
+  features: json("features").notNull(), // array of feature strings
+  maxSessions: int("maxSessions"), // null for unlimited
+  storageGB: int("storageGB"), // null for unlimited
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+
+// User subscriptions
+export const subscriptions = mysqlTable("subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  planId: int("planId").notNull().references(() => subscriptionPlans.id),
+  status: mysqlEnum("status", ["active", "inactive", "canceled", "expired"]).default("active").notNull(),
+  startDate: timestamp("startDate").defaultNow().notNull(),
+  endDate: timestamp("endDate"),
+  renewalDate: timestamp("renewalDate"),
+  autoRenew: boolean("autoRenew").default(true),
+  canceledAt: timestamp("canceledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// Payments (eSewa and Khalti)
+export const payments = mysqlTable("payments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  subscriptionId: int("subscriptionId").references(() => subscriptions.id),
+  gateway: mysqlEnum("gateway", ["esewa", "khalti"]).notNull(),
+  amount: int("amount").notNull(), // in NPR
+  currency: varchar("currency", { length: 3 }).default("NPR").notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "failed", "refunded"]).default("pending").notNull(),
+  transactionId: varchar("transactionId", { length: 255 }), // eSewa or Khalti transaction ID
+  referenceId: varchar("referenceId", { length: 255 }), // unique reference for payment
+  description: text("description"),
+  metadata: json("metadata"), // additional data from gateway
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = typeof payments.$inferInsert;
+
 // Score milestones and notifications
 export const milestones = mysqlTable("milestones", {
   id: int("id").autoincrement().primaryKey(),

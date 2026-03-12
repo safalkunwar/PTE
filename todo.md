@@ -266,3 +266,53 @@
 - [ ] Optimize AI engines: reduce prompt token count, keep accuracy
 - [ ] Add timeout/fallback: if AI takes >15s, return deterministic score
 - [ ] All tests passing, 0 TypeScript errors
+
+
+## Phase 13 — Payment System & Admin Panel (IN PROGRESS)
+- [ ] Set up Stripe integration with webdev_add_feature
+- [ ] Create subscriptions table (id, userId, stripeSubscriptionId, planId, status, currentPeriodStart, currentPeriodEnd, createdAt, canceledAt)
+- [ ] Create payments table (id, userId, stripePaymentIntentId, amount, currency, status, description, createdAt)
+- [ ] Create subscription_plans table (id, name, price, interval, features, maxSessions, storageGB, createdAt)
+- [ ] Add subscription status to users table (subscription_id, plan_tier: free/pro/premium)
+- [ ] Build Stripe webhook handler for payment success/failure/subscription updates
+- [ ] Create admin panel layout with sidebar navigation (Dashboard, Users, Analytics, Billing, Settings)
+- [ ] Build admin dashboard with KPI cards (total users, active subscriptions, revenue, storage used)
+- [ ] Build users management table (list, search, filter by plan, view details, suspend/activate)
+- [ ] Build analytics dashboard (user growth chart, session trends, revenue trends, task type popularity)
+- [ ] Build billing dashboard (subscription list, payment history, revenue breakdown by plan)
+- [ ] Implement adminProcedure for role-based access control
+- [ ] Add admin check middleware to all admin routes
+- [ ] Create pricing page with subscription plans
+- [ ] Add subscription checkout flow (Stripe hosted checkout)
+- [ ] Add subscription management page (view current plan, upgrade/downgrade, cancel)
+- [ ] Write admin panel integration tests
+- [ ] All tests passing, 0 TypeScript errors
+
+
+## Phase 13 — Payment System & Admin Panel (IN PROGRESS)
+- [x] Create payment database schema (subscriptions, subscription_plans, payments tables)
+- [x] Run database migration for payment tables
+- [x] Implement eSewa payment gateway integration (server/payment/esewa.ts)
+- [x] Implement Khalti payment gateway integration (server/payment/khalti.ts)
+- [x] Create payment database helpers (server/payment/db.ts)
+- [x] Create payment tRPC router (server/routers/paymentRouter.ts)
+- [x] Add payment router to main appRouter
+- [x] Build admin dashboard page (client/src/pages/AdminDashboard.tsx)
+- [x] Add admin route to App.tsx (/admin)
+- [x] Admin dashboard KPI cards: Total Users, Active Subscriptions, Total Revenue, Storage Used
+- [x] Admin dashboard tabs: Overview, Users, Billing, Analytics, Settings
+- [x] Revenue by gateway breakdown chart
+- [x] Subscriptions by plan breakdown
+- [x] Recent payments transaction list
+- [x] Admin role-based access control (redirect non-admins to home)
+- [x] All 84 tests passing, 0 TypeScript errors
+- [ ] Implement admin procedures for user management (ban, promote, view details)
+- [ ] Implement admin procedures for analytics queries (DAU, MAU, churn rate, LTV)
+- [ ] Create user management UI (search, filter, bulk actions)
+- [ ] Create billing management UI (revenue charts, subscription trends, payment history)
+- [ ] Create analytics dashboard UI (user growth, retention, engagement metrics)
+- [ ] Add webhook handlers for eSewa and Khalti payment confirmations
+- [ ] Implement subscription auto-renewal logic
+- [ ] Add payment history page for users (/payments)
+- [ ] Add subscription management page for users (/subscription)
+- [ ] Create subscription plan management UI for admins
