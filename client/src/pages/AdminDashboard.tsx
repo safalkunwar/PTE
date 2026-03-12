@@ -10,6 +10,8 @@ import {
   TrendingUp, DollarSign, ShoppingCart, AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import AdminUserManagement from "@/components/AdminUserManagement";
+import AdminAnalytics from "@/components/AdminAnalytics";
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -247,20 +249,7 @@ export default function AdminDashboard() {
 
           {/* Users Tab */}
           <TabsContent value="users">
-            <Card className="bg-slate-700 border-slate-600">
-              <CardHeader>
-                <CardTitle className="text-white">User Management</CardTitle>
-                <CardDescription>Manage platform users</CardDescription>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-center h-40 text-slate-400">
-                  <div className="text-center">
-                    <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>User management interface coming soon</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <AdminUserManagement />
           </TabsContent>
 
           {/* Billing Tab */}
@@ -283,20 +272,7 @@ export default function AdminDashboard() {
 
           {/* Analytics Tab */}
           <TabsContent value="analytics">
-            <Card className="bg-slate-700 border-slate-600">
-              <CardHeader>
-                <CardTitle className="text-white">Analytics</CardTitle>
-                <CardDescription>Platform usage and trends</CardDescription>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-center h-40 text-slate-400">
-                  <div className="text-center">
-                    <BarChart3 className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>Analytics dashboard coming soon</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <AdminAnalytics />
           </TabsContent>
 
           {/* Settings Tab */}

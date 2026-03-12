@@ -12,6 +12,7 @@ import Home from "./pages/Home";
 // Lazy-load all authenticated pages to reduce initial bundle size
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 const Practice = lazy(() => import("./pages/Practice"));
 const PracticeSession = lazy(() => import("./pages/PracticeSession"));
 const MockTest = lazy(() => import("./pages/MockTest"));
@@ -56,6 +57,7 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/admin" component={AdminDashboard} />
+        <Route path="/payments" component={PaymentHistory} />
         <Route path="/practice" component={Practice} />
         <Route path="/practice/:section" component={Practice} />
         <Route path="/session/:sessionId" component={PracticeSession} />

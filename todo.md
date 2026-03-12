@@ -306,13 +306,15 @@
 - [x] Recent payments transaction list
 - [x] Admin role-based access control (redirect non-admins to home)
 - [x] All 84 tests passing, 0 TypeScript errors
+- [x] Create webhook handlers for eSewa and Khalti payment confirmations
+- [x] Create user payment history page with transaction list and subscription details
+- [x] Create admin user management UI with search, filter, bulk actions
+- [x] Create admin analytics dashboard with DAU, MAU, churn rate, LTV metrics
+- [x] Integrate AdminUserManagement component into admin panel
+- [x] Integrate AdminAnalytics component into admin panel
+- [x] Add PaymentHistory route to App.tsx
 - [ ] Implement admin procedures for user management (ban, promote, view details)
-- [ ] Implement admin procedures for analytics queries (DAU, MAU, churn rate, LTV)
-- [ ] Create user management UI (search, filter, bulk actions)
-- [ ] Create billing management UI (revenue charts, subscription trends, payment history)
-- [ ] Create analytics dashboard UI (user growth, retention, engagement metrics)
-- [ ] Add webhook handlers for eSewa and Khalti payment confirmations
+- [ ] Implement admin procedures for analytics queries
 - [ ] Implement subscription auto-renewal logic
-- [ ] Add payment history page for users (/payments)
-- [ ] Add subscription management page for users (/subscription)
+- [ ] Add subscription management page for users
 - [ ] Create subscription plan management UI for admins
