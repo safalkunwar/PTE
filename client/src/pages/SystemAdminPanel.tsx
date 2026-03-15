@@ -1,62 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Activity, Users, Settings, Database, AlertCircle, LogOut,
   TrendingUp, Server, Shield, Lock, FileText, BarChart3,
   Download, Upload, RefreshCw, Trash2, Eye, Edit, CheckCircle,
-  Clock, Zap, HardDrive, Cpu, MemoryStick,
+  Clock, Zap, HardDrive, Cpu, MemoryStick, Search,
 } from "lucide-react";
 import { motion } from "framer-motion";
-
-interface SystemHealth {
-  status: "healthy" | "warning" | "critical";
-  cpu: number;
-  memory: number;
-  database: "connected" | "disconnected";
-  api: "operational" | "degraded";
-  uptime: string;
-  lastCheck: string;
-}
-
-interface AdminUser {
-  id: number;
-  name: string;
-  email: string;
-  role: "super_admin" | "admin" | "moderator";
-  status: "active" | "inactive";
-  lastLogin: string;
-  createdAt: string;
-}
-
-interface SystemLog {
-  id: number;
-  admin: string;
-  action: string;
-  target: string;
-  timestamp: string;
-  status: "success" | "failed";
-  details: string;
-}
 
 export default function SystemAdminPanel() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("health");
-  const [systemHealth, setSystemHealth] = useState<SystemHealth>({
-    status: "healthy",
-    cpu: 45,
-    memory: 62,
-    database: "connected",
-    api: "operational",
-    uptime: "45 days 12 hours",
-    lastCheck: new Date().toLocaleTimeString(),
-  });
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Check if user is super admin
+  // Fetch real data from backend
+  const { data: systemStats, isLoading: statsLoading } = trpc.systemAdmin.getSystemStats.useQuery();
+  const { data: systemHealth, isLoading: healthLoading } = trpc.systemAdmin.getSystemHealth.useQuery();
+  const { data: activityLogs, isLoading: logsLoading } = trpc.systemAdmin.getActivityLogs.useQuery({
+    limit: 50,
+    offset: 0,
+  });
+  const { data: alerts, isLoading: alertsLoading } = trpc.systemAdmin.getSystemAlerts.useQuery();
+  const { data: performanceMetrics, isLoading: metricsLoading } = trpc.systemAdmin.getPerformanceMetrics.useQuery();
+
+  // Check if user is admin
   useEffect(() => {
     if (user && user.role !== "admin") {
       window.location.href = "/";
@@ -72,65 +45,22 @@ export default function SystemAdminPanel() {
     window.location.href = "/";
   };
 
-  const mockAdminUsers: AdminUser[] = [
-    {
-      id: 1,
-      name: "John Admin",
-      email: "john@admin.com",
-      role: "super_admin",
-      status: "active",
-      lastLogin: "2 minutes ago",
-      createdAt: "2024-01-15",
-    },
-    {
-      id: 2,
-      name: "Sarah Manager",
-      email: "sarah@admin.com",
-      role: "admin",
-      status: "active",
-      lastLogin: "1 hour ago",
-      createdAt: "2024-02-10",
-    },
-    {
-      id: 3,
-      name: "Mike Moderator",
-      email: "mike@admin.com",
-      role: "moderator",
-      status: "active",
-      lastLogin: "3 hours ago",
-      createdAt: "2024-02-20",
-    },
-  ];
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <div className="space-y-3">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="h-12 bg-slate-600 rounded-lg animate-pulse" />
+      ))}
+    </div>
+  );
 
-  const mockSystemLogs: SystemLog[] = [
-    {
-      id: 1,
-      admin: "John Admin",
-      action: "User Ban",
-      target: "User #1234",
-      timestamp: "2 minutes ago",
-      status: "success",
-      details: "Banned user for violating terms of service",
-    },
-    {
-      id: 2,
-      admin: "Sarah Manager",
-      action: "Plan Update",
-      target: "Pro Plan",
-      timestamp: "15 minutes ago",
-      status: "success",
-      details: "Updated Pro plan pricing to ₨1,499",
-    },
-    {
-      id: 3,
-      admin: "Mike Moderator",
-      action: "Content Upload",
-      target: "Reading Questions",
-      timestamp: "1 hour ago",
-      status: "success",
-      details: "Uploaded 50 new reading comprehension questions",
-    },
-  ];
+  // Empty state
+  const EmptyState = ({ message }: { message: string }) => (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <AlertCircle className="w-12 h-12 text-slate-400 mb-4" />
+      <p className="text-slate-400">{message}</p>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -153,7 +83,7 @@ export default function SystemAdminPanel() {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-sm font-medium text-white">{user.name}</p>
-              <p className="text-xs text-slate-400">Super Administrator</p>
+              <p className="text-xs text-slate-400">Administrator</p>
             </div>
             <Button
               onClick={handleLogout}
@@ -169,7 +99,7 @@ export default function SystemAdminPanel() {
       </motion.div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* System Health Overview */}
+        {/* System Overview */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -177,72 +107,62 @@ export default function SystemAdminPanel() {
         >
           <h2 className="text-2xl font-bold text-white mb-4">System Overview</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Health Status */}
+            {/* Total Users */}
             <Card className="bg-slate-700 border-slate-600">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm text-slate-400 mb-1">System Status</p>
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-500" />
-                      <p className="text-lg font-bold text-white capitalize">
-                        {systemHealth.status}
-                      </p>
-                    </div>
+                    <p className="text-sm text-slate-400 mb-1">Total Users</p>
+                    <p className="text-lg font-bold text-white">
+                      {statsLoading ? "..." : systemStats?.totalUsers || 0}
+                    </p>
                   </div>
-                  <Activity className="w-8 h-8 text-green-500" />
+                  <Users className="w-8 h-8 text-blue-500" />
                 </div>
               </CardContent>
             </Card>
 
-            {/* CPU Usage */}
+            {/* Active Subscriptions */}
             <Card className="bg-slate-700 border-slate-600">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm text-slate-400 mb-1">CPU Usage</p>
-                    <p className="text-lg font-bold text-white">{systemHealth.cpu}%</p>
-                    <div className="w-full bg-slate-600 rounded-full h-2 mt-2">
-                      <div
-                        className="bg-blue-500 h-2 rounded-full"
-                        style={{ width: `${systemHealth.cpu}%` }}
-                      />
-                    </div>
+                    <p className="text-sm text-slate-400 mb-1">Active Subscriptions</p>
+                    <p className="text-lg font-bold text-white">
+                      {statsLoading ? "..." : systemStats?.activeSubscriptions || 0}
+                    </p>
                   </div>
-                  <Cpu className="w-8 h-8 text-blue-500" />
+                  <TrendingUp className="w-8 h-8 text-green-500" />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Memory Usage */}
+            {/* Total Revenue */}
             <Card className="bg-slate-700 border-slate-600">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm text-slate-400 mb-1">Memory Usage</p>
-                    <p className="text-lg font-bold text-white">{systemHealth.memory}%</p>
-                    <div className="w-full bg-slate-600 rounded-full h-2 mt-2">
-                      <div
-                        className="bg-purple-500 h-2 rounded-full"
-                        style={{ width: `${systemHealth.memory}%` }}
-                      />
-                    </div>
+                    <p className="text-sm text-slate-400 mb-1">Total Revenue</p>
+                    <p className="text-lg font-bold text-white">
+                      ₨{statsLoading ? "..." : (systemStats?.totalRevenue || 0).toLocaleString()}
+                    </p>
                   </div>
-                  <MemoryStick className="w-8 h-8 text-purple-500" />
+                  <Zap className="w-8 h-8 text-yellow-500" />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Uptime */}
+            {/* Failed Payments */}
             <Card className="bg-slate-700 border-slate-600">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm text-slate-400 mb-1">Uptime</p>
-                    <p className="text-lg font-bold text-white">{systemHealth.uptime}</p>
-                    <p className="text-xs text-slate-400 mt-2">Last check: {systemHealth.lastCheck}</p>
+                    <p className="text-sm text-slate-400 mb-1">Failed Payments</p>
+                    <p className="text-lg font-bold text-white">
+                      {statsLoading ? "..." : systemStats?.failedPayments || 0}
+                    </p>
                   </div>
-                  <Clock className="w-8 h-8 text-orange-500" />
+                  <AlertCircle className="w-8 h-8 text-red-500" />
                 </div>
               </CardContent>
             </Card>
@@ -277,9 +197,9 @@ export default function SystemAdminPanel() {
                 <BarChart3 className="w-4 h-4 mr-2" />
                 Logs
               </TabsTrigger>
-              <TabsTrigger value="security" className="text-white data-[state=active]:bg-red-600">
-                <Lock className="w-4 h-4 mr-2" />
-                Security
+              <TabsTrigger value="alerts" className="text-white data-[state=active]:bg-red-600">
+                <AlertCircle className="w-4 h-4 mr-2" />
+                Alerts
               </TabsTrigger>
             </TabsList>
 
@@ -291,27 +211,26 @@ export default function SystemAdminPanel() {
                   <CardDescription>Real-time system service monitoring</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    {[
-                      { name: "API Server", status: "operational", uptime: "99.9%" },
-                      { name: "Database", status: "operational", uptime: "99.95%" },
-                      { name: "Cache Server", status: "operational", uptime: "100%" },
-                      { name: "Email Service", status: "operational", uptime: "99.8%" },
-                      { name: "Payment Gateway", status: "operational", uptime: "99.99%" },
-                      { name: "Storage Service", status: "operational", uptime: "99.9%" },
-                    ].map((service, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 bg-slate-600 rounded-lg">
-                        <div>
-                          <p className="text-white font-medium">{service.name}</p>
-                          <p className="text-xs text-slate-400">Uptime: {service.uptime}</p>
+                  {healthLoading ? (
+                    <LoadingSkeleton />
+                  ) : systemHealth?.services && systemHealth.services.length > 0 ? (
+                    <div className="space-y-3">
+                      {systemHealth.services.map((service, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-slate-600 rounded-lg">
+                          <div>
+                            <p className="text-white font-medium">{service.name}</p>
+                            <p className="text-xs text-slate-400">Uptime: {service.uptime}</p>
+                          </div>
+                          <Badge className="bg-green-500">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            {service.status}
+                          </Badge>
                         </div>
-                        <Badge className="bg-green-500">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          {service.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No service data available" />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -320,34 +239,34 @@ export default function SystemAdminPanel() {
             <TabsContent value="users" className="space-y-4">
               <Card className="bg-slate-700 border-slate-600">
                 <CardHeader>
-                  <CardTitle className="text-white">Admin Users</CardTitle>
-                  <CardDescription>Manage administrator accounts and permissions</CardDescription>
+                  <CardTitle className="text-white">Platform Users</CardTitle>
+                  <CardDescription>Manage and monitor user accounts</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {mockAdminUsers.map((admin) => (
-                      <div key={admin.id} className="flex items-center justify-between p-3 bg-slate-600 rounded-lg hover:bg-slate-500 transition-colors">
-                        <div className="flex-1">
-                          <p className="text-white font-medium">{admin.name}</p>
-                          <p className="text-xs text-slate-400">{admin.email}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge variant={admin.role === "super_admin" ? "default" : "secondary"}>
-                            {admin.role.replace("_", " ")}
-                          </Badge>
-                          <span className="text-xs text-slate-400">{admin.lastLogin}</span>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300">
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300">
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                <CardContent className="space-y-4">
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <Input
+                        placeholder="Search users by email or name..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 bg-slate-600 border-slate-500 text-white"
+                      />
+                    </div>
+                    <Button className="bg-teal-600 hover:bg-teal-700">
+                      <RefreshCw className="w-4 h-4" />
+                    </Button>
                   </div>
+                  {statsLoading ? (
+                    <LoadingSkeleton />
+                  ) : systemStats?.totalUsers && systemStats.totalUsers > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-slate-400">Total Users: {systemStats.totalUsers}</p>
+                      <p className="text-sm text-slate-400">Active Users: {systemStats.activeUsers}</p>
+                    </div>
+                  ) : (
+                    <EmptyState message="No users found in the system" />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -362,17 +281,16 @@ export default function SystemAdminPanel() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
-                      { type: "Speaking", count: 250, lastUpdate: "2 hours ago" },
-                      { type: "Writing", count: 180, lastUpdate: "5 hours ago" },
-                      { type: "Reading", count: 320, lastUpdate: "1 day ago" },
-                      { type: "Listening", count: 200, lastUpdate: "3 days ago" },
+                      { type: "Speaking", count: 250 },
+                      { type: "Writing", count: 180 },
+                      { type: "Reading", count: 320 },
+                      { type: "Listening", count: 200 },
                     ].map((content, i) => (
                       <div key={i} className="p-4 bg-slate-600 rounded-lg">
                         <div className="flex items-start justify-between mb-3">
                           <div>
                             <p className="text-white font-medium">{content.type}</p>
                             <p className="text-2xl font-bold text-teal-400">{content.count}</p>
-                            <p className="text-xs text-slate-400">Updated {content.lastUpdate}</p>
                           </div>
                           <FileText className="w-8 h-8 text-teal-500" />
                         </div>
@@ -397,7 +315,7 @@ export default function SystemAdminPanel() {
               <Card className="bg-slate-700 border-slate-600">
                 <CardHeader>
                   <CardTitle className="text-white">System Configuration</CardTitle>
-                  <CardDescription>Manage system-wide settings and integrations</CardDescription>
+                  <CardDescription>Manage system-wide settings</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-4">
@@ -432,67 +350,91 @@ export default function SystemAdminPanel() {
               <Card className="bg-slate-700 border-slate-600">
                 <CardHeader>
                   <CardTitle className="text-white">Activity Logs</CardTitle>
-                  <CardDescription>Track all admin actions and system events</CardDescription>
+                  <CardDescription>Track all system activities and events</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {mockSystemLogs.map((log) => (
-                      <div key={log.id} className="p-3 bg-slate-600 rounded-lg border-l-4 border-teal-500">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <p className="text-white font-medium">{log.action}</p>
-                            <p className="text-sm text-slate-400">By {log.admin} on {log.target}</p>
+                  {logsLoading ? (
+                    <LoadingSkeleton />
+                  ) : activityLogs && activityLogs.length > 0 ? (
+                    <div className="space-y-2">
+                      {activityLogs.map((log: any, i: number) => (
+                        <div key={i} className="p-3 bg-slate-600 rounded-lg border-l-4 border-teal-500">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <p className="text-white font-medium">{log.action}</p>
+                              <p className="text-sm text-slate-400">
+                                {log.userName} on {log.target}
+                              </p>
+                            </div>
+                            <Badge variant={log.status === "success" ? "default" : "destructive"}>
+                              {log.status}
+                            </Badge>
                           </div>
-                          <Badge variant={log.status === "success" ? "default" : "destructive"}>
-                            {log.status}
-                          </Badge>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-slate-400">{log.details}</p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(log.timestamp).toLocaleString()}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs text-slate-400">{log.details}</p>
-                          <p className="text-xs text-slate-500">{log.timestamp}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No activity logs available" />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Security Tab */}
-            <TabsContent value="security" className="space-y-4">
+            {/* Alerts Tab */}
+            <TabsContent value="alerts" className="space-y-4">
               <Card className="bg-slate-700 border-slate-600">
                 <CardHeader>
-                  <CardTitle className="text-white">Security & Compliance</CardTitle>
-                  <CardDescription>System security settings and audit controls</CardDescription>
+                  <CardTitle className="text-white">System Alerts</CardTitle>
+                  <CardDescription>Critical system notifications and warnings</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    {[
-                      { name: "Two-Factor Authentication", enabled: true, users: 45 },
-                      { name: "API Key Rotation", enabled: true, days: 90 },
-                      { name: "SSL/TLS Encryption", enabled: true, version: "1.3" },
-                      { name: "DDoS Protection", enabled: true, status: "Active" },
-                      { name: "Data Backup", enabled: true, frequency: "Daily" },
-                      { name: "Security Audit Log", enabled: true, retention: "90 days" },
-                    ].map((security, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 bg-slate-600 rounded-lg">
-                        <div>
-                          <p className="text-white font-medium">{security.name}</p>
+                <CardContent>
+                  {alertsLoading ? (
+                    <LoadingSkeleton />
+                  ) : alerts && alerts.length > 0 ? (
+                    <div className="space-y-3">
+                      {alerts.map((alert: any, i: number) => (
+                        <div
+                          key={i}
+                          className={`p-4 rounded-lg border-l-4 ${
+                            alert.severity === "error"
+                              ? "bg-red-900/20 border-red-500"
+                              : alert.severity === "warning"
+                              ? "bg-yellow-900/20 border-yellow-500"
+                              : "bg-blue-900/20 border-blue-500"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <p className="text-white font-medium">{alert.title}</p>
+                              <p className="text-sm text-slate-300">{alert.message}</p>
+                            </div>
+                            <Badge
+                              variant={
+                                alert.severity === "error"
+                                  ? "destructive"
+                                  : alert.severity === "warning"
+                                  ? "secondary"
+                                  : "default"
+                              }
+                            >
+                              {alert.severity}
+                            </Badge>
+                          </div>
                           <p className="text-xs text-slate-400">
-                            {security.enabled ? "✓ Enabled" : "✗ Disabled"}
+                            {new Date(alert.timestamp).toLocaleString()}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
-                          {security.enabled && (
-                            <CheckCircle className="w-5 h-5 text-green-500" />
-                          )}
-                          <Button size="sm" variant="ghost" className="text-blue-400">
-                            <Settings className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No active alerts" />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
