@@ -41,6 +41,22 @@ This project uses independent AI models, is aligned with public PTE scoring desc
 
 Active Development
 
+## Deploy to GitHub Pages
+
+The front-end can be published as a static site on GitHub Pages so it’s visible at `https://<owner>.github.io/<repo>/`.
+
+1. **Enable GitHub Pages**
+   - In your repo go to **Settings → Pages**.
+   - Under **Build and deployment**, set **Source** to **GitHub Actions**.
+
+2. **Push to trigger deploy**
+   - Pushing to `main` or `master` runs the **Deploy to GitHub Pages** workflow.
+   - It builds the client with base path `/<repo>/` and deploys the result.
+   - After the workflow finishes, the site is available at `https://<owner>.github.io/<repo>/`.
+
+3. **Note**
+   - Only the **static client** is deployed. Auth and data require the Node server and database; deploy those separately (e.g. Railway, Render, Fly.io) and set `VITE_OAUTH_PORTAL_URL` / your API URL if you want the Pages site to talk to a backend.
+
 ## Contribution Guidelines
 
 Contributions are welcome! Please adhere to clean code practices and respect assessment ethics.

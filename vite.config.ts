@@ -152,7 +152,9 @@ function vitePluginManusDebugCollector(): Plugin {
 
 const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
+// For GitHub Pages project site (e.g. owner.github.io/repo/), set VITE_BASE_PATH=/repo/
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins,
   resolve: {
     alias: {
