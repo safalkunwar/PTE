@@ -7,6 +7,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as adminDb from "../admin/adminDb";
+import * as analyticsDb from "../admin/analyticsDb";
 /**
  * Admin-only procedure - checks for super admin role
  */
@@ -220,6 +221,74 @@ export const systemAdminRouter = router({
         newKey: "sk_live_••••••••••••••••",
         timestamp: new Date().toISOString(),
       };
+    }),
+
+  /**
+   * Get user engagement metrics
+   */
+  getUserEngagement: adminOnlyProcedure
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input }) => {
+      try {
+        return await analyticsDb.getUserEngagementMetrics(input.days);
+      } catch (error) {
+        console.error("[Admin] Error fetching user engagement:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
+    }),
+
+  /**
+   * Get learning performance metrics
+   */
+  getLearningPerformance: adminOnlyProcedure
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input }) => {
+      try {
+        return await analyticsDb.getLearningPerformanceMetrics(input.days);
+      } catch (error) {
+        console.error("[Admin] Error fetching learning performance:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
+    }),
+
+  /**
+   * Get payment and revenue metrics
+   */
+  getPaymentRevenue: adminOnlyProcedure
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input }) => {
+      try {
+        return await analyticsDb.getPaymentRevenueMetrics(input.days);
+      } catch (error) {
+        console.error("[Admin] Error fetching payment revenue:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
+    }),
+
+  /**
+   * Get customer lifetime value
+   */
+  getCustomerLTV: adminOnlyProcedure.query(async () => {
+    try {
+      return await analyticsDb.getCustomerLifetimeValue();
+    } catch (error) {
+      console.error("[Admin] Error fetching CLV:", error);
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    }
+  }),
+
+  /**
+   * Get churn and retention metrics
+   */
+  getChurnRetention: adminOnlyProcedure
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input }) => {
+      try {
+        return await analyticsDb.getChurnRetentionMetrics(input.days);
+      } catch (error) {
+        console.error("[Admin] Error fetching churn retention:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
     }),
 
   /**
