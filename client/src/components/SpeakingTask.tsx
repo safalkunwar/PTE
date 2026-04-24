@@ -511,6 +511,7 @@ export default function SpeakingTask({
   const [recordRemaining, setRecordRemaining] = useState(timing.record);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [recordStart, setRecordStart] = useState<number>(0);
   const [actualDuration, setActualDuration] = useState(0);
@@ -523,6 +524,7 @@ export default function SpeakingTask({
   const speechRecognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // ── Skip preparation time ──────────────────────────────────────────────────
 
@@ -568,6 +570,9 @@ export default function SpeakingTask({
         setActualDuration(dur);
         setPhase("done");
         setAudioBlob(blob);
+        // Create object URL for audio playback
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
         onRecordingComplete(blob);
         clearInterval(recordTimerRef.current);
       };
@@ -622,7 +627,7 @@ export default function SpeakingTask({
     } catch {
       toast.error("Microphone access denied. Please allow microphone access in your browser settings.");
     }
-  }, [onRecordingComplete, recordStart]);
+  }, [onRecordingComplete, recordStart, audioUrl]);
 
   // ── Stop recording manually ────────────────────────────────────────────────
 
@@ -634,6 +639,16 @@ export default function SpeakingTask({
     speechRecognitionRef.current?.stop();
     clearInterval(recordTimerRef.current);
   }, []);
+
+  // ── Cleanup audio URL on unmount ────────────────────────────────────────────
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
 
   // ── Prep countdown ─────────────────────────────────────────────────────────
 
@@ -692,6 +707,21 @@ export default function SpeakingTask({
       {/* ── Image / Resource panel (always shown for describe_image) ── */}
       {(taskType === "describe_image" || taskType === "retell_lecture") && (
         <TaskImage imageUrl={imageUrl} taskType={taskType} />
+      )}
+
+      {/* ── Persistent audio playback (always available after recording) ── */}
+      {audioUrl && phase !== "recording" && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
+          <Volume2 className="w-4 h-4 text-blue-600 shrink-0" />
+          <audio 
+            ref={audioRef}
+            controls 
+            src={audioUrl} 
+            className="flex-1 h-8 rounded" 
+            controlsList="nodownload"
+          />
+          <span className="text-xs text-blue-600 font-medium whitespace-nowrap">{actualDuration.toFixed(1)}s</span>
+        </div>
       )}
 
       {/* ── Model audio player (shown before submission) ── */}
@@ -816,10 +846,17 @@ export default function SpeakingTask({
               </div>
             )}
 
-            {audioBlob && (
-              <div className="w-full">
+            {audioBlob && audioUrl && (
+              <div className="w-full space-y-2">
                 <p className="text-xs text-gray-500 mb-1.5 text-center">Review your recording:</p>
-                <audio controls src={URL.createObjectURL(audioBlob)} className="w-full h-10 rounded-lg" />
+                <audio 
+                  ref={audioRef}
+                  controls 
+                  src={audioUrl} 
+                  className="w-full h-10 rounded-lg bg-white border border-green-200" 
+                  controlsList="nodownload"
+                />
+                <p className="text-xs text-gray-400 text-center">Duration: {actualDuration.toFixed(1)}s</p>
               </div>
             )}
 
