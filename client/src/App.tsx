@@ -13,6 +13,9 @@ import Home from "./pages/Home";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
+const AdminPaymentsPage = lazy(() => import("./pages/AdminPaymentsPage"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const SystemAdminPanel = lazy(() => import("./pages/SystemAdminPanel"));
 const Practice = lazy(() => import("./pages/Practice"));
@@ -59,6 +62,9 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/admin" component={AdminDashboard} />
+        <Route path="/admin/dashboard" component={AdminDashboardPage} />
+        <Route path="/admin/users" component={AdminUsersPage} />
+        <Route path="/admin/payments" component={AdminPaymentsPage} />
         <Route path="/payments" component={PaymentHistory} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/system-admin" component={SystemAdminPanel} />

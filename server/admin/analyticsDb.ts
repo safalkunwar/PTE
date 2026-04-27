@@ -18,18 +18,18 @@ export async function getUserEngagementMetrics(days: number = 30) {
   const activeUsers = await db
     .select({ count: sql<number>`COUNT(DISTINCT ${practiceSessions.userId})` })
     .from(practiceSessions)
-    .where(gte(practiceSessions.createdAt, startDate));
+    .where(gte(practiceSessions.startedAt, startDate));
 
   // Daily active users
   const dau = await db
     .select({
-      date: sql<string>`DATE(${practiceSessions.createdAt})`,
+      date: sql<string>`DATE(${practiceSessions.startedAt})`,
       count: sql<number>`COUNT(DISTINCT ${practiceSessions.userId})`,
     })
     .from(practiceSessions)
-    .where(gte(practiceSessions.createdAt, startDate))
-    .groupBy(sql`DATE(${practiceSessions.createdAt})`)
-    .orderBy(sql`DATE(${practiceSessions.createdAt})`);
+    .where(gte(practiceSessions.startedAt, startDate))
+    .groupBy(sql`DATE(${practiceSessions.startedAt})`)
+    .orderBy(sql`DATE(${practiceSessions.startedAt})`);
 
   // Login frequency
   const loginFrequency = await db
@@ -44,7 +44,7 @@ export async function getUserEngagementMetrics(days: number = 30) {
       userCount: sql<number>`COUNT(DISTINCT ${practiceSessions.userId})`,
     })
     .from(practiceSessions)
-    .where(gte(practiceSessions.createdAt, startDate))
+    .where(gte(practiceSessions.startedAt, startDate))
     .groupBy(
       sql`CASE 
         WHEN COUNT(*) >= 20 THEN 'Very Active (20+ sessions)'
