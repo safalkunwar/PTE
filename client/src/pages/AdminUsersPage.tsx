@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Search, Loader2, Mail, Calendar, Lock, Unlock } from "lucide-react";
 import { useState } from "react";
 
-export function AdminUsersPage() {
+export default function AdminUsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: logs, isLoading } = trpc.systemAdmin.getActivityLogs.useQuery({ limit: 100, offset: 0 });
   // Extract unique users from activity logs

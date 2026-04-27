@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Search, Loader2, CreditCard, CheckCircle, XCircle, Clock } from "lucide-react";
 import { useState } from "react";
 
-export function AdminPaymentsPage() {
+export default function AdminPaymentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: payments, isLoading } = trpc.systemAdmin.getActivityLogs.useQuery({ limit: 200, offset: 0 });
 

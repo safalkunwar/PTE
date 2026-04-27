@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, CreditCard, TrendingUp, Activity, Loader2 } from "lucide-react";
 
-export function AdminDashboardPage() {
+export default function AdminDashboardPage() {
   const { data: stats, isLoading } = trpc.systemAdmin.getSystemStats.useQuery();
   const { data: health } = trpc.systemAdmin.getSystemHealth.useQuery();
 
