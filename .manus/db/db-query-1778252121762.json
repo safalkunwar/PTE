@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE questions SET imageUrl = CASE \n  WHEN id = 30028 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30029 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30030 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30031 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30032 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  ELSE imageUrl\nEND\nWHERE taskType = 'describe_image' AND id IN (30028, 30029, 30030, 30031, 30032);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4HtZwcVYhdUL7pR.root --database HHnb9eqJbcMAZQp3ndSVqE --execute UPDATE questions SET imageUrl = CASE \n  WHEN id = 30028 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30029 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30030 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30031 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  WHEN id = 30032 THEN 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80'\n  ELSE imageUrl\nEND\nWHERE taskType = 'describe_image' AND id IN (30028, 30029, 30030, 30031, 30032);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 583
+}

@@ -1,0 +1,35 @@
+{
+  "query": "SELECT id, title, imageUrl FROM questions WHERE taskType = 'describe_image' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4HtZwcVYhdUL7pR.root --database HHnb9eqJbcMAZQp3ndSVqE --execute SELECT id, title, imageUrl FROM questions WHERE taskType = 'describe_image' LIMIT 5;",
+  "rows": [
+    {
+      "id": "30028",
+      "title": "Global Temperature Rise Chart",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Global_average_temperature_-_NASA_GISS_2023.svg/640px-Global_average_temperature_-_NASA_GISS_2023.svg.png"
+    },
+    {
+      "id": "30029",
+      "title": "Pie Chart - Energy Sources",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Pie_chart_of_US_GHG_emissions_2020.svg/600px-Pie_chart_of_US_GHG_emissions_2020.svg.png"
+    },
+    {
+      "id": "30030",
+      "title": "Population Pyramid - Japan",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/World_population_%28UN%29.svg/640px-World_population_%28UN%29.svg.png"
+    },
+    {
+      "id": "30031",
+      "title": "Bar Chart - University Enrollment",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Bar_chart_of_global_internet_usage.svg/640px-Bar_chart_of_global_internet_usage.svg.png"
+    },
+    {
+      "id": "30032",
+      "title": "Map - Amazon Deforestation",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Amazon_deforestation_1978-2020.svg/640px-Amazon_deforestation_1978-2020.svg.png"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttitle\timageUrl\n30028\tGlobal Temperature Rise Chart\thttps://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Global_average_temperature_-_NASA_GISS_2023.svg/640px-Global_average_temperature_-_NASA_GISS_2023.svg.png\n30029\tPie Chart - Energy Sources\thttps://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Pie_chart_of_US_GHG_emissions_2020.svg/600px-Pie_chart_of_US_GHG_emissions_2020.svg.png\n30030\tPopulation Pyramid - Japan\thttps://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/World_population_%28UN%29.svg/640px-World_population_%28UN%29.svg.png\n30031\tBar Chart - University Enrollment\thttps://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Bar_chart_of_global_internet_usage.svg/640px-Bar_chart_of_global_internet_usage.svg.png\n30032\tMap - Amazon Deforestation\thttps://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Amazon_deforestation_1978-2020.svg/640px-Amazon_deforestation_1978-2020.svg.png\n",
+  "stderr": "",
+  "execution_time_ms": 651
+}

@@ -256,6 +256,13 @@ function ModelAudioPlayer({ text, taskType }: { text: string; taskType: string }
 function TaskImage({ imageUrl, taskType }: { imageUrl?: string; taskType: string }) {
   const [expanded, setExpanded] = useState(true);
   const [imgError, setImgError] = useState(false);
+  
+  // Reset error when imageUrl changes
+  useEffect(() => {
+    if (imageUrl && imgError) {
+      setImgError(false);
+    }
+  }, [imageUrl]);
 
   if (taskType !== "describe_image" && taskType !== "retell_lecture") return null;
 
@@ -282,6 +289,7 @@ function TaskImage({ imageUrl, taskType }: { imageUrl?: string; taskType: string
                 src={imageUrl}
                 alt="Task image"
                 className="w-full max-h-80 object-contain rounded-xl border border-gray-100 bg-gray-50"
+                crossOrigin="anonymous"
                 onError={() => setImgError(true)}
               />
               <div className="mt-2 text-xs text-gray-400 text-center">
@@ -505,6 +513,11 @@ export default function SpeakingTask({
   recordingDuration,
 }: SpeakingTaskProps) {
   const timing = SPEAKING_TIMINGS[taskType] ?? { prep: 0, record: 40, label: "Speaking" };
+  
+  // Debug: log imageUrl
+  useEffect(() => {
+    console.log('[SpeakingTask] imageUrl:', imageUrl, 'taskType:', taskType);
+  }, [imageUrl, taskType]);
 
   const [phase, setPhase] = useState<Phase>(timing.prep > 0 ? "prep" : "recording");
   const [prepRemaining, setPrepRemaining] = useState(timing.prep);
@@ -581,6 +594,24 @@ export default function SpeakingTask({
       const now = Date.now();
       setIsRecording(true);
       setRecordStart(now);
+      
+      // Play beep sound when recording starts
+      try {
+        const beepCtx = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        const osc = beepCtx.createOscillator();
+        const gain = beepCtx.createGain();
+        osc.connect(gain);
+        gain.connect(beepCtx.destination);
+        osc.frequency.value = 1000; // 1kHz beep
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, beepCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.1);
+        osc.start(beepCtx.currentTime);
+        osc.stop(beepCtx.currentTime + 0.1);
+        beepCtx.close();
+      } catch (e) {
+        console.warn('Could not play beep sound:', e);
+      }
 
       // Record countdown
       recordTimerRef.current = setInterval(() => {

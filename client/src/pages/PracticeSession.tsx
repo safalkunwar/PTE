@@ -676,7 +676,24 @@ export default function PracticeSession() {
     );
   }
 
-  const options = question.options ? (typeof question.options === "string" ? JSON.parse(question.options) : question.options) as Array<{ id: string; text: string; correct: boolean }> : [];
+  // Parse options - handle both array of strings and array of objects
+  let options: Array<{ id: string; text: string; correct: boolean }> = [];
+  if (question.options) {
+    const parsed = typeof question.options === "string" ? JSON.parse(question.options) : question.options;
+    if (Array.isArray(parsed)) {
+      if (parsed.length > 0 && typeof parsed[0] === "string") {
+        // Options are just strings - convert to objects with generated IDs
+        options = parsed.map((text: string, idx: number) => ({
+          id: String.fromCharCode(65 + idx), // A, B, C, D...
+          text,
+          correct: false
+        }));
+      } else {
+        // Options are already objects
+        options = parsed as Array<{ id: string; text: string; correct: boolean }>;
+      }
+    }
+  }
 
   return (
     <PTELayout title={question.title}>
@@ -753,7 +770,7 @@ export default function PracticeSession() {
                 <SpeakingTask
                   taskType={question.taskType}
                   originalText={question.content as string | undefined}
-                  imageUrl={(question as { imageUrl?: string }).imageUrl}
+                  imageUrl={question.imageUrl || undefined}
                   onRecordingComplete={(blob) => {
                     setAudioBlob(blob);
                     setRecordingDuration((Date.now() - recordingStartRef.current) / 1000);
@@ -802,7 +819,7 @@ export default function PracticeSession() {
                         : "border-border bg-card hover:bg-muted"
                     }`}
                   >
-                    <span className="font-medium mr-2">{opt.id.toUpperCase()}.</span>
+                    <span className="font-medium mr-2">{opt.id ? opt.id.toUpperCase() : "?"}.</span>
                     {opt.text}
                   </button>
                 ))}
@@ -891,7 +908,7 @@ export default function PracticeSession() {
                         : "border-border bg-card hover:bg-muted"
                     }`}
                   >
-                    <span className="font-medium mr-2">{opt.id.toUpperCase()}.</span>
+                    <span className="font-medium mr-2">{opt.id ? opt.id.toUpperCase() : "?"}.</span>
                     {opt.text}
                   </button>
                 ))}
