@@ -595,20 +595,34 @@ export default function SpeakingTask({
       setIsRecording(true);
       setRecordStart(now);
       
-      // Play beep sound when recording starts
+      // Play double beep sound when recording starts - louder and more noticeable
       try {
         const beepCtx = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-        const osc = beepCtx.createOscillator();
         const gain = beepCtx.createGain();
-        osc.connect(gain);
         gain.connect(beepCtx.destination);
-        osc.frequency.value = 1000; // 1kHz beep
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, beepCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.1);
-        osc.start(beepCtx.currentTime);
-        osc.stop(beepCtx.currentTime + 0.1);
-        beepCtx.close();
+        
+        // First beep (higher pitch)
+        const osc1 = beepCtx.createOscillator();
+        osc1.connect(gain);
+        osc1.frequency.value = 1200; // Higher pitch
+        osc1.type = 'sine';
+        gain.gain.setValueAtTime(0.5, beepCtx.currentTime); // Louder
+        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.15);
+        osc1.start(beepCtx.currentTime);
+        osc1.stop(beepCtx.currentTime + 0.15);
+        
+        // Second beep (lower pitch) - 0.2 seconds after first
+        const osc2 = beepCtx.createOscillator();
+        osc2.connect(gain);
+        osc2.frequency.value = 800; // Lower pitch
+        osc2.type = 'sine';
+        gain.gain.setValueAtTime(0.5, beepCtx.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.35);
+        osc2.start(beepCtx.currentTime + 0.2);
+        osc2.stop(beepCtx.currentTime + 0.35);
+        
+        // Close context after beeps finish
+        setTimeout(() => beepCtx.close(), 400);
       } catch (e) {
         console.warn('Could not play beep sound:', e);
       }
