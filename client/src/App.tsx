@@ -28,6 +28,7 @@ const Profile = lazy(() => import("./pages/Profile"));
 const CoachingPlan = lazy(() => import("./pages/CoachingPlan"));
 const RevisionMode = lazy(() => import("./pages/RevisionMode"));
 const Resources = lazy(() => import("./pages/Resources"));
+const AdminQuestionManager = lazy(() => import("./pages/AdminQuestionManager"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageLoader() {
@@ -65,6 +66,7 @@ function Router() {
         <Route path="/admin/dashboard" component={AdminDashboardPage} />
         <Route path="/admin/users" component={AdminUsersPage} />
         <Route path="/admin/payments" component={AdminPaymentsPage} />
+        <Route path="/admin/questions" component={AdminQuestionManager} />
         <Route path="/payments" component={PaymentHistory} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/system-admin" component={SystemAdminPanel} />

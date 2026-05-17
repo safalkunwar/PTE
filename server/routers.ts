@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TrpcContext } from "./_core/context";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -26,6 +27,7 @@ import { notifyOwner } from "./_core/notification";
 import { aiScoringRouter } from "./routers/aiScoringRouter";
 import { paymentRouter } from "./routers/paymentRouter";
 import { systemAdminRouter } from "./routers/systemAdminRouter";
+import { adminRouter } from "./routers/adminRouter";
 
 // Questions router
 const questionsRouter = router({
@@ -51,6 +53,12 @@ const questionsRouter = router({
   count: publicProcedure.query(async () => {
     return getQuestionsCount();
   }),
+
+  getByTaskType: publicProcedure
+    .input(z.object({ taskType: z.string() }))
+    .query(async ({ input }) => {
+      return getQuestions({ taskType: input.taskType });
+    }),
 });
 
 // Sessions router
@@ -689,6 +697,7 @@ export const appRouter = router({
   aiScoring: aiScoringRouter,
   payment: paymentRouter,
   systemAdmin: systemAdminRouter,
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;
