@@ -241,7 +241,11 @@
 - [x] Verified getUserAnalytics and getUserMilestones already return null/[] (safe)
 - [x] All 84 tests passing, 0 TypeScript errors
 
-## Phase 12 — Speaking Section: Missing Task Types & Reorder
+## Phase 12 — Bug Fixes: PTE Guidelines & Audio Playback
+- [ ] Fix questions to follow PTE Academic guidelines (format, difficulty, content)
+- [ ] Add audio playback to all speaking tasks (instructions, prompts, audio content)
+
+## Phase 13 — Speaking Section: Missing Task Types & Reorder
 - [ ] Research official PTE Speaking section order and rubrics for Respond to a Situation and Summarize Group Discussion
 - [ ] Add respond_to_situation and summarize_group_discussion to taskType enum in schema
 - [ ] Run DB migration for new task types

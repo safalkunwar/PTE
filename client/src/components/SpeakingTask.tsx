@@ -145,6 +145,61 @@ function LiveWaveform({
   );
 }
 
+// ─── Audio URL player for pre-recorded audio ─────────────────────────────────
+
+function AudioURLPlayer({ audioUrl, label }: { audioUrl?: string; label: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  if (!audioUrl) return null;
+
+  const play = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  }, []);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsPlaying(false);
+    }
+  }, []);
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Volume2 className="w-4 h-4 text-blue-600" />
+        <span className="text-sm font-bold text-blue-700">{label}</span>
+        <Badge variant="outline" className="text-xs text-blue-500 border-blue-200 ml-auto">Audio</Badge>
+      </div>
+      <audio
+        ref={audioRef}
+        onEnded={() => setIsPlaying(false)}
+        onError={() => {
+          toast.error("Failed to load audio");
+          setIsPlaying(false);
+        }}
+      />
+      <div className="flex items-center gap-3">
+        {!isPlaying ? (
+          <Button size="sm" onClick={play} className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5">
+            <Play className="w-3.5 h-3.5 fill-current" />
+            Play Audio
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={stop} className="border-blue-300 text-blue-600 gap-1.5">
+            <StopCircle className="w-3.5 h-3.5" />
+            Stop
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Model TTS audio player ───────────────────────────────────────────────────
 
 function ModelAudioPlayer({ text, taskType }: { text: string; taskType: string }) {
@@ -495,6 +550,7 @@ interface SpeakingTaskProps {
   taskType: string;
   originalText?: string;
   imageUrl?: string;           // for describe_image tasks
+  questionAudioUrl?: string;   // for summarize_group_discussion, respond_to_situation
   onRecordingComplete: (blob: Blob) => void;
   transcription?: string;
   isSubmitted?: boolean;
@@ -507,6 +563,7 @@ export default function SpeakingTask({
   taskType,
   originalText,
   imageUrl,
+  questionAudioUrl,
   onRecordingComplete,
   transcription,
   isSubmitted,
@@ -767,6 +824,11 @@ export default function SpeakingTask({
           />
           <span className="text-xs text-blue-600 font-medium whitespace-nowrap">{actualDuration.toFixed(1)}s</span>
         </div>
+      )}
+
+      {/* ── Question audio (for summarize_group_discussion, respond_to_situation) ── */}
+      {questionAudioUrl && (
+        <AudioURLPlayer audioUrl={questionAudioUrl} label={taskType === "summarize_group_discussion" ? "Listen to Discussion" : "Listen to Situation"} />
       )}
 
       {/* ── Model audio player (shown before submission) ── */}

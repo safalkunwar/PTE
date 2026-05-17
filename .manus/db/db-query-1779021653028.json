@@ -1,0 +1,9 @@
+{
+  "query": "DELETE FROM questions WHERE taskType IN ('respond_to_situation', 'summarize_group_discussion') AND id >= 30209;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4HtZwcVYhdUL7pR.root --database HHnb9eqJbcMAZQp3ndSVqE --execute DELETE FROM questions WHERE taskType IN ('respond_to_situation', 'summarize_group_discussion') AND id >= 30209;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 676
+}

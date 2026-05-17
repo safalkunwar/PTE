@@ -771,6 +771,7 @@ export default function PracticeSession() {
                   taskType={question.taskType}
                   originalText={question.content as string | undefined}
                   imageUrl={question.imageUrl || undefined}
+                  questionAudioUrl={question.audioUrl || undefined}
                   onRecordingComplete={(blob) => {
                     setAudioBlob(blob);
                     setRecordingDuration((Date.now() - recordingStartRef.current) / 1000);
