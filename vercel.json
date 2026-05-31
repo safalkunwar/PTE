@@ -2,7 +2,8 @@
   "version": 2,
   "installCommand": "pnpm install",
   "buildCommand": "pnpm build",
-  "framework": null,
+  "outputDirectory": "dist/public",
+  "framework": "vite",
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
@@ -10,6 +11,7 @@
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
