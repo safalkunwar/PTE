@@ -5,8 +5,8 @@ import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 import { mapSupabaseUserToProfile, verifySupabaseAccessToken } from "./supabase";
 
-export function registerAuthRoutes(app: Express) {
-  app.post("/api/auth/session", async (req: Request, res: Response) => {
+export function registerAuthRoutes(app: any) {
+  app.post("/api/auth/session", async (req: any, res: any) => {
     const accessToken =
       typeof req.body?.access_token === "string" ? req.body.access_token : null;
 
@@ -43,7 +43,7 @@ export function registerAuthRoutes(app: Express) {
   });
 
   /** Legacy OAuth callback — redirects to login for old bookmarks */
-  app.get("/api/oauth/callback", (_req: Request, res: Response) => {
+  app.get("/api/oauth/callback", (_req: any, res: any) => {
     res.redirect(302, "/login");
   });
 }
