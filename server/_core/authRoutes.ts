@@ -43,7 +43,7 @@ export function registerAuthRoutes(app: Express) {
   });
 
   /** Legacy OAuth callback — redirects to login for old bookmarks */
-  app.get("/api/oauth/callback", (_req, res) => {
+  app.get("/api/oauth/callback", (_req: Request, res: Response) => {
     res.redirect(302, "/login");
   });
 }

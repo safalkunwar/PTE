@@ -1,4 +1,4 @@
-import { createClient, type User as SupabaseUser } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { ENV } from "./env";
 
 let adminClient: ReturnType<typeof createClient> | null = null;
@@ -17,9 +17,9 @@ export function getSupabaseAdmin() {
 
 export async function verifySupabaseAccessToken(
   accessToken: string
-): Promise<SupabaseUser | null> {
+): Promise<any | null> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.auth.getUser(accessToken);
+  const { data, error } = await (supabase.auth as any).getUser(accessToken);
   if (error || !data.user) {
     console.warn("[Auth] Invalid Supabase token:", error?.message);
     return null;
@@ -27,7 +27,7 @@ export async function verifySupabaseAccessToken(
   return data.user;
 }
 
-export function mapSupabaseUserToProfile(user: SupabaseUser) {
+export function mapSupabaseUserToProfile(user: any) {
   const provider = user.app_metadata?.provider ?? user.identities?.[0]?.provider;
   return {
     openId: user.id,
