@@ -33,17 +33,6 @@ The remaining five legacy Fill in the Blanks records were migrated to canonical 
 
 Reorder Paragraphs answer keys are stored as JSON arrays. Objective scoring now decodes that persisted format before calculating adjacent-pair partial credit, so the learner’s sequence is compared with the actual paragraph order rather than with the serialized JSON text.
 
-## Multiple Choice Scoring Compatibility
-
-Multiple Choice keys imported as JSON arrays, including numeric option IDs, are now decoded into normalized selection arrays before exact-match and multiple-selection partial-credit scoring. The learner’s selected option IDs therefore compare with the underlying stored values rather than with their serialized JSON representation.
-
-## Listening Selection Value Compatibility
-
-Listening selection tasks imported from different question sources may store a correct answer as an option ID or as the full option text. A shared normalizer now maps both stored keys and learner-submitted option IDs to the same displayed option text before immediate deterministic scoring and the Listening AI scoring route. Canonical `multiple_choice_single` and `multiple_choice_multiple` identifiers are also explicitly handled by the Listening scorer.
-
-## Answer Short Question Answer-Key Verification
-
-The Answer Short Question bank was audited for content references. Ten prompts had no stored `correctAnswer`, which left their vocabulary/content evaluation without an explicit expected response. Each record now has a concise reference answer, including Photosynthesis, Pacific Ocean, Deoxyribonucleic acid, Sir Isaac Newton, Electrical energy, 206, CO2, Osmosis, and Seven. A scorer regression test verifies that the stored reference answer is passed into the Answer Short Question evaluation prompt.
 
 ## Sources
 
