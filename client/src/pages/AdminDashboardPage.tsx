@@ -1,11 +1,11 @@
 import { AdminLayout } from "@/components/AdminLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, CreditCard, TrendingUp, Activity, Loader2 } from "lucide-react";
+import { Users, CreditCard, TrendingUp, Activity } from "lucide-react";
 
 export default function AdminDashboardPage() {
   const { data: stats, isLoading } = trpc.systemAdmin.getSystemStats.useQuery();
-  const { data: health } = trpc.systemAdmin.getSystemHealth.useQuery();
+  const { data: health, isLoading: healthLoading } = trpc.systemAdmin.getSystemHealth.useQuery();
 
   const StatCard = ({ icon: Icon, label, value, subtext, color }: any) => (
     <Card className="hover:shadow-lg transition-shadow">
@@ -27,8 +27,15 @@ export default function AdminDashboardPage() {
   if (isLoading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center h-96">
-          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+        <div className="space-y-8 animate-pulse" aria-busy="true" aria-label="Loading admin dashboard">
+          <div className="space-y-3">
+            <div className="h-8 w-48 rounded bg-gray-200" />
+            <div className="h-4 w-80 max-w-full rounded bg-gray-200" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[1, 2, 3, 4].map((item) => <div key={item} className="h-32 rounded-xl bg-gray-100" />)}
+          </div>
+          <div className="h-52 rounded-xl bg-gray-100" />
         </div>
       </AdminLayout>
     );
@@ -82,8 +89,13 @@ export default function AdminDashboardPage() {
             <CardDescription>Current system status and performance</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {health?.services?.map((service: any) => (
+            {healthLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse" aria-busy="true" aria-label="Loading system health">
+                {[1, 2, 3].map((item) => <div key={item} className="h-24 rounded-lg bg-gray-100" />)}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {health?.services?.map((service: any) => (
                 <div key={service.name} className="p-4 border rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-gray-800">{service.name}</span>
@@ -99,8 +111,9 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="text-sm text-gray-600">Uptime: {service.uptime}</div>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

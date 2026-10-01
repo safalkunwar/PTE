@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import {
   Home, BookOpen, BarChart3, Target, Settings, LogOut,
   Mic, PenLine, Headphones, ChevronRight, Bell, Search,
@@ -10,8 +10,14 @@ import {
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
+import { AnimatedScoreCounter } from "@/components/AnimatedScoreCounter";
 import { AnimatedProgressBar } from "@/components/AnimatedProgressBar";
 import { pageVariants, staggerContainer, staggerItem, cardHover } from "@/lib/animations";
+import PremiumHeader from "@/components/PremiumHeader";
+import ExamReadinessCard from "@/components/ExamReadinessCard";
+import DailyTipsWidget from "@/components/DailyTipsWidget";
+import ExamCountdownWidget from "@/components/ExamCountdownWidget";
+import AiStudyPlannerWidget from "@/components/AiStudyPlannerWidget";
 
 const NAV_ITEMS = [
   { icon: Home,      label: "Home",         href: "/dashboard" },
@@ -101,28 +107,26 @@ function Sidebar({ currentPath }: { currentPath: string }) {
 
 export default function Dashboard() {
   const { user, isAuthenticated, loading } = useAuth();
-  const [location] = useLocation();
-  const { data: analytics } = trpc.analytics.myStats.useQuery(undefined, { enabled: isAuthenticated });
-  const { data: todayTarget } = trpc.analytics.todayTarget.useQuery(undefined, { enabled: isAuthenticated });
-  const { data: milestones } = trpc.analytics.milestones.useQuery(undefined, { enabled: isAuthenticated });
-  const { data: history } = trpc.sessions.myHistory.useQuery({ limit: 5 }, { enabled: isAuthenticated });
+  const { data: analytics, isLoading: analyticsLoading } = trpc.analytics.myStats.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: todayTarget, isLoading: targetLoading } = trpc.analytics.todayTarget.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: milestones, isLoading: milestonesLoading } = trpc.analytics.milestones.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: history, isLoading: historyLoading } = trpc.sessions.myHistory.useQuery({ limit: 5 }, { enabled: isAuthenticated });
+  const dashboardDataLoading = analyticsLoading || targetLoading || milestonesLoading || historyLoading;
   const generateTarget = trpc.analytics.generateTarget.useMutation({ onSuccess: () => toast.success("Daily target set!") });
 
-  if (loading) {
+  if (loading || (isAuthenticated && dashboardDataLoading)) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#F5F7FA" }}>
-        <div className="text-center">
-          <motion.div
-            className="w-10 h-10 rounded-full border-4 mx-auto mb-3"
-            style={{ borderColor: "#26C6DA", borderTopColor: "transparent" }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
-          />
-          <motion.p
-            className="text-gray-500 text-sm"
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >Loading...</motion.p>
+      <div className="min-h-screen bg-[#F5F7FA] p-6 animate-pulse" aria-busy="true" aria-label="Loading dashboard">
+        <div className="mx-auto max-w-6xl space-y-5">
+          <div className="h-16 rounded-xl bg-gray-200" />
+          <div className="h-6 w-48 rounded bg-gray-200" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((item) => <div key={item} className="h-28 rounded-xl bg-gray-200" />)}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-56 rounded-xl bg-gray-200" />
+            <div className="h-56 rounded-xl bg-gray-200" />
+          </div>
         </div>
       </div>
     );
@@ -153,35 +157,18 @@ export default function Dashboard() {
   const avgScore = analytics?.avgScore || 0;
 
   return (
-    <div className="flex min-h-screen" style={{ backgroundColor: "#F5F7FA" }}>
-      <Sidebar currentPath={location} />
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
-          <div className="flex-1 max-w-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="text" placeholder="Question Content / Number" className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-gray-50" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3 ml-4">
-            <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
-              <Bell className="w-4 h-4 text-gray-500" />
-              {(milestones?.length || 0) > 0 && <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ backgroundColor: "#EF5350" }} />}
-            </button>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: "#26C6DA" }}>
-              {user?.name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "U"}
-            </div>
-          </div>
-        </header>
-
-        <main className="flex-1 p-6 overflow-auto">
+    <div className="min-h-screen" style={{ backgroundColor: "#F5F7FA" }}>
+      <PremiumHeader />
+      <main className="p-6 overflow-auto">
           <motion.div
             className="max-w-6xl mx-auto space-y-5"
             variants={pageVariants}
             initial="initial"
             animate="animate"
           >
+            <ExamReadinessCard stats={{ totalSessions: analytics?.totalSessions, avgScore: analytics?.avgScore }} targetScore={65} />
+            <AiStudyPlannerWidget userTargetScore={65} />
+
             {/* Exam banner */}
             <motion.div
               className="rounded-xl p-4 text-white flex items-center justify-between"
@@ -368,6 +355,12 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Exam Countdown & Daily Exam Tips */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <ExamCountdownWidget />
+              <DailyTipsWidget />
+            </div>
+
             {/* Recent Sessions */}
             {history && history.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-100 p-5">
@@ -388,14 +381,14 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        {session.overallScore && <span className="text-sm font-bold" style={{ color: "#26C6DA" }}>{Math.round(session.overallScore)}</span>}
+                        {session.overallScore && <AnimatedScoreCounter value={session.overallScore} className="text-sm font-bold" style={{ color: "#26C6DA" }} />}
                         {session.status === "completed" ? (
                           <Link href={`/score-report/${session.id}`}>
-                            <button className="text-xs px-2 py-1 rounded text-white" style={{ backgroundColor: "#26C6DA" }}>Report</button>
+                            <button className="text-xs px-2 py-1 rounded text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" style={{ backgroundColor: "#26C6DA" }}>Report</button>
                           </Link>
                         ) : (
                           <Link href={`/session/${session.id}`}>
-                            <button className="text-xs px-2 py-1 rounded border" style={{ borderColor: "#26C6DA", color: "#26C6DA" }}>Continue</button>
+                            <button className="text-xs px-2 py-1 rounded border transition-all duration-200 hover:-translate-y-0.5 hover:bg-cyan-50 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" style={{ borderColor: "#26C6DA", color: "#26C6DA" }}>Continue</button>
                           </Link>
                         )}
                       </div>
@@ -406,8 +399,7 @@ export default function Dashboard() {
             )}
 
           </motion.div>
-        </main>
-      </div>
+      </main>
     </div>
   );
 }

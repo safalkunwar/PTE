@@ -13,6 +13,8 @@ import {
   getSubscriptionPlans,
   createSubscription,
   getUserActiveSubscription,
+  getUserSubscriptions,
+  updateSubscriptionAutoRenew,
   cancelSubscription,
   getSubscriptionWithPlan,
 } from "../payment/db";
@@ -116,23 +118,27 @@ export const paymentRouter = router({
 
         // Update payment status
         const payment = await getPaymentByReferenceId(
-          verification.transactionCode || ""
+          verification.transactionCode || "",
+          ctx.user.id,
         );
-        if (payment) {
-          try {
-            await updatePaymentStatus(
-              payment.id,
-              "completed",
-              verification.transactionCode,
-              { verificationResponse: verification }
-            );
-          } catch (e) {
-            console.error("Error updating payment status:", e);
-          }
+        if (!payment) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Payment record not found" });
+        }
+        try {
+          await updatePaymentStatus(
+            payment.id,
+            "completed",
+            verification.transactionCode,
+            { verificationResponse: verification },
+            ctx.user.id,
+          );
+        } catch (e) {
+          console.error("Error updating payment status:", e);
         }
 
         return { success: true, verification };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error("eSewa verification error:", error);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -221,22 +227,25 @@ export const paymentRouter = router({
         }
 
         // Update payment status
-        const payment = await getPaymentByReferenceId(input.pidx);
-        if (payment) {
-          try {
-            await updatePaymentStatus(
-              payment.id,
-              "completed",
-              verification.transactionId,
-              { verificationResponse: verification }
-            );
-          } catch (e) {
-            console.error("Error updating payment status:", e);
-          }
+        const payment = await getPaymentByReferenceId(input.pidx, ctx.user.id);
+        if (!payment) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Payment record not found" });
+        }
+        try {
+          await updatePaymentStatus(
+            payment.id,
+            "completed",
+            verification.transactionId,
+            { verificationResponse: verification },
+            ctx.user.id,
+          );
+        } catch (e) {
+          console.error("Error updating payment status:", e);
         }
 
         return { success: true, verification };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error("Khalti verification error:", error);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -250,24 +259,38 @@ export const paymentRouter = router({
     return getUserPayments(ctx.user.id, 20);
   }),
 
+  // Get all subscriptions belonging to the current user
+  getSubscriptions: protectedProcedure.query(async ({ ctx }) => {
+    return getUserSubscriptions(ctx.user.id);
+  }),
+
   // Get user's active subscription
   getActiveSubscription: protectedProcedure.query(async ({ ctx }) => {
     const subscription = await getUserActiveSubscription(ctx.user.id);
     if (!subscription) return null;
 
-    return getSubscriptionWithPlan(subscription.id);
+    return getSubscriptionWithPlan(subscription.id, ctx.user.id);
   }),
+
+  // Toggle auto-renewal for a subscription owned by the current user
+  setAutoRenew: protectedProcedure
+    .input(z.object({ subscriptionId: z.number().int().positive(), autoRenew: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const updated = await updateSubscriptionAutoRenew(input.subscriptionId, ctx.user.id, input.autoRenew);
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
+      return { success: true, subscription: updated };
+    }),
 
   // Cancel subscription
   cancelSubscription: protectedProcedure
     .input(z.object({ subscriptionId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const subscription = await getSubscriptionWithPlan(input.subscriptionId);
-      if (!subscription || subscription.userId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      const subscription = await getSubscriptionWithPlan(input.subscriptionId, ctx.user.id);
+      if (!subscription) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
       }
 
-      await cancelSubscription(input.subscriptionId);
+      await cancelSubscription(input.subscriptionId, ctx.user.id);
       return { success: true };
     }),
 });

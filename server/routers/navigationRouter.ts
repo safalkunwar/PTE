@@ -16,7 +16,13 @@ export const navigationRouter = router({
       const responseByQuestionId = new Map(responses.map(response => [response.questionId, response]));
       const plan = Array.isArray(session.questionPlan) ? session.questionPlan as Array<{ questionId: number; taskType: string; section: string }> : [];
       if (plan.length > 0) {
-        return plan.map(item => {
+        const validPlan = (await Promise.all(plan.map(async item => {
+          const question = await getQuestionById(item.questionId);
+          return question && isQuestionAllowedInSession(session.section, question.section)
+            ? { ...item, taskType: question.taskType, section: question.section }
+            : null;
+        }))).filter((item): item is NonNullable<typeof item> => item !== null);
+        return validPlan.map(item => {
           const response = responseByQuestionId.get(item.questionId);
           const isSkipped = Boolean(response && response.normalizedScore === null && response.responseText === null && response.audioUrl === null);
           return {

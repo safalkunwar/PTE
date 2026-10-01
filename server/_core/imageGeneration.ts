@@ -1,3 +1,20 @@
+/**
+ * Image generation helper using internal ImageService
+ *
+ * Example usage:
+ *   const { url: imageUrl } = await generateImage({
+ *     prompt: "A serene landscape with mountains"
+ *   });
+ *
+ * For editing:
+ *   const { url: imageUrl } = await generateImage({
+ *     prompt: "Add a rainbow to this landscape",
+ *     originalImages: [{
+ *       url: "https://example.com/original.jpg",
+ *       mimeType: "image/jpeg"
+ *     }]
+ *   });
+ */
 import { storagePut } from "server/storage";
 import { ENV } from "./env";
 
@@ -17,42 +34,59 @@ export type GenerateImageResponse = {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  if (!ENV.openaiApiKey) {
-    throw new Error("OPENAI_API_KEY is required for image generation");
+  if (!ENV.forgeApiUrl) {
+    throw new Error("BUILT_IN_FORGE_API_URL is not configured");
+  }
+  if (!ENV.forgeApiKey) {
+    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
 
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
+  // Build the full URL by appending the service path to the base URL
+  const baseUrl = ENV.forgeApiUrl.endsWith("/")
+    ? ENV.forgeApiUrl
+    : `${ENV.forgeApiUrl}/`;
+  const fullUrl = new URL(
+    "images.v1.ImageService/GenerateImage",
+    baseUrl
+  ).toString();
+
+  const response = await fetch(fullUrl, {
     method: "POST",
     headers: {
+      accept: "application/json",
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.openaiApiKey}`,
+      "connect-protocol-version": "1",
+      authorization: `Bearer ${ENV.forgeApiKey}`,
     },
     body: JSON.stringify({
-      model: "dall-e-3",
       prompt: options.prompt,
-      n: 1,
-      size: "1024x1024",
+      original_images: options.originalImages || [],
     }),
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`Image generation failed: ${response.status} ${detail}`);
+    throw new Error(
+      `Image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+    );
   }
 
-  const payload = (await response.json()) as {
-    data?: Array<{ url?: string; b64_json?: string }>;
+  const result = (await response.json()) as {
+    image: {
+      b64Json: string;
+      mimeType: string;
+    };
   };
-  const image = payload.data?.[0];
-  if (!image?.url && !image?.b64_json) {
-    throw new Error("No image returned from OpenAI");
-  }
+  const base64Data = result.image.b64Json;
+  const buffer = Buffer.from(base64Data, "base64");
 
-  if (image.url) {
-    return { url: image.url };
-  }
-
-  const buffer = Buffer.from(image.b64_json!, "base64");
-  const { url } = await storagePut(`generated/${Date.now()}.png`, buffer, "image/png");
-  return { url };
+  // Save to S3
+  const { url } = await storagePut(
+    `generated/${Date.now()}.png`,
+    buffer,
+    result.image.mimeType
+  );
+  return {
+    url,
+  };
 }

@@ -142,5 +142,5 @@ export async function verifyESewaPayment(
  * Generate unique reference ID for payment
  */
 export function generateReferenceId(userId: number, timestamp: number): string {
-  return `PTE${userId}${timestamp}`;
+  return `PTE${userId}${timestamp}${crypto.randomBytes(4).toString("hex")}`;
 }

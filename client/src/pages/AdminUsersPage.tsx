@@ -53,8 +53,13 @@ export default function AdminUsersPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex items-center justify-center h-96">
-                <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+              <div className="space-y-3 animate-pulse" aria-busy="true" aria-label="Loading users">
+                {[1, 2, 3, 4, 5].map((row) => (
+                  <div key={row} className="grid grid-cols-5 gap-4 rounded-lg bg-gray-100 p-4">
+                    <div className="h-8 rounded-full bg-gray-200" />
+                    {[1, 2, 3, 4].map((cell) => <div key={cell} className="h-4 rounded bg-gray-200" />)}
+                  </div>
+                ))}
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="text-center py-12">
@@ -108,7 +113,7 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex gap-2">
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title={user.role === "admin" ? "Demote" : "Promote"}>
+                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-all duration-200 hover:-translate-y-0.5 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500" title={user.role === "admin" ? "Demote" : "Promote"}>
                             {user.role === "admin" ? (
                               <Unlock size={18} className="text-orange-600" />
                             ) : (

@@ -14,6 +14,12 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { playTtsFallback } from "@/lib/ttsAudioFallback";
+import { withMediaRetry } from "@/lib/mediaRetry";
+import { advanceCountdown, DEFAULT_SPEAKING_TIMING, getSpeakingTiming } from "@/lib/speakingTiming";
+import { getInitialSpeakingPhase, getPhaseAfterPromptPlayback, isAudioLedSpeakingTask } from "@/lib/speakingPromptFlow";
+import { hasDetectedVoice, shouldStopForNoSpeech } from "@/lib/speakingSilenceRule";
+import { normalizeWaveformBar, waveformBarOpacity, WAVEFORM_BAR_COUNT } from "@/lib/waveform";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -22,18 +28,6 @@ import {
   Clock, Zap, Info, Activity, SkipForward,
   Play, Pause, StopCircle, ImageIcon, ChevronDown, ChevronUp,
 } from "lucide-react";
-
-// ─── Task timing config (seconds) ────────────────────────────────────────────
-
-export const SPEAKING_TIMINGS: Record<string, { prep: number; record: number; label: string }> = {
-  read_aloud:                  { prep: 40, record: 40, label: "Read Aloud" },
-  repeat_sentence:             { prep: 0,  record: 15, label: "Repeat Sentence" },
-  describe_image:              { prep: 25, record: 40, label: "Describe Image" },
-  retell_lecture:              { prep: 10, record: 40, label: "Re-tell Lecture" },
-  answer_short_question:       { prep: 3,  record: 10, label: "Answer Short Question" },
-  summarize_group_discussion:  { prep: 10, record: 90, label: "Summarize Group Discussion" },
-  respond_to_situation:        { prep: 10, record: 40, label: "Respond to a Situation" },
-};
 
 // ─── Word alignment types ─────────────────────────────────────────────────────
 
@@ -91,8 +85,6 @@ function CircularTimer({ total, remaining, phase }: { total: number; remaining: 
 // ─── Real-time Web Audio waveform ─────────────────────────────────────────────
 // Uses AnalyserNode to read actual microphone amplitude data
 
-const BAR_COUNT = 32;
-
 function LiveWaveform({
   analyserRef,
   isActive,
@@ -100,16 +92,16 @@ function LiveWaveform({
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
   isActive: boolean;
 }) {
-  const [bars, setBars] = useState<number[]>(new Array(BAR_COUNT).fill(2));
+  const [bars, setBars] = useState<number[]>(new Array(WAVEFORM_BAR_COUNT).fill(2));
   const animFrameRef = useRef<number>(0);
 
   useEffect(() => {
     if (!isActive) {
-      setBars(new Array(BAR_COUNT).fill(2));
+      setBars(new Array(WAVEFORM_BAR_COUNT).fill(2));
       return;
     }
 
-    const dataArray = new Uint8Array(BAR_COUNT * 2);
+    const dataArray = new Uint8Array(WAVEFORM_BAR_COUNT * 2);
 
     const draw = () => {
       animFrameRef.current = requestAnimationFrame(draw);
@@ -117,9 +109,9 @@ function LiveWaveform({
       if (!analyser) return;
       analyser.getByteFrequencyData(dataArray);
       // Sample every other bin for visual variety
-      const newBars = Array.from({ length: BAR_COUNT }, (_, i) => {
+      const newBars = Array.from({ length: WAVEFORM_BAR_COUNT }, (_, i) => {
         const val = dataArray[i * 2] ?? 0;
-        return Math.max(2, Math.round((val / 255) * 48));
+        return normalizeWaveformBar((val / 255) * 48);
       });
       setBars(newBars);
     };
@@ -133,14 +125,123 @@ function LiveWaveform({
       {bars.map((h, i) => (
         <div
           key={i}
+          aria-hidden="true"
           className={`rounded-full transition-all duration-75 ${isActive ? "bg-red-400" : "bg-gray-200"}`}
           style={{
             width: "5px",
             height: `${h}px`,
-            opacity: isActive ? 0.7 + (h / 48) * 0.3 : 1,
+            opacity: waveformBarOpacity(isActive, h),
+            transform: isActive ? `scaleY(${0.82 + (h / 48) * 0.18})` : "scaleY(0.65)",
+            transformOrigin: "center",
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// ─── Audio URL player for pre-recorded audio ─────────────────────────────────
+
+function AudioURLPlayer({
+  audioUrl,
+  label,
+  fallbackText,
+  autoPlay = false,
+  onPlaybackComplete,
+}: {
+  audioUrl?: string;
+  label: string;
+  fallbackText?: string;
+  autoPlay?: boolean;
+  onPlaybackComplete?: () => void;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const autoPlayedRef = useRef(false);
+
+  const finishPlayback = useCallback(() => {
+    setIsPlaying(false);
+    onPlaybackComplete?.();
+  }, [onPlaybackComplete]);
+
+  const playFallback = useCallback(() => {
+    const spokenText = fallbackText || (label.includes("Situation")
+      ? "Please respond to the following situation: You missed your appointment and need to reschedule with the receptionist."
+      : label.includes("Discussion")
+      ? "Today we are discussing the impact of artificial intelligence on modern employment markets across various industries."
+      : label.includes("Question")
+      ? "Listen to the question and give a short, direct answer."
+      : "Listen to the recorded lecture passage and summarize the key points.");
+    const started = playTtsFallback(spokenText, finishPlayback);
+    if (started) {
+      setIsPlaying(true);
+      toast.info("Using synthesized audio prompt for this practice question.");
+    } else {
+      finishPlayback();
+      toast.error("Audio could not be played.");
+    }
+  }, [fallbackText, finishPlayback, label]);
+
+  const play = useCallback(() => {
+    // If audio is missing or a known placeholder URL, use browser speech synthesis.
+    if (!audioRef.current || !audioUrl || audioUrl.includes("example.com")) {
+      playFallback();
+      return;
+    }
+    void audioRef.current.play()
+      .then(() => setIsPlaying(true))
+      .catch(playFallback);
+  }, [audioUrl, playFallback]);
+
+  useEffect(() => {
+    autoPlayedRef.current = false;
+  }, [audioUrl, fallbackText]);
+
+  useEffect(() => {
+    if (!autoPlay || autoPlayedRef.current) return;
+    autoPlayedRef.current = true;
+    play();
+  }, [autoPlay, play]);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    window.speechSynthesis?.cancel();
+    setIsPlaying(false);
+  }, []);
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Volume2 className="w-4 h-4 text-blue-600" />
+        <span className="text-sm font-bold text-blue-700">{label}</span>
+        <Badge variant="outline" className="text-xs text-blue-500 border-blue-200 ml-auto">Audio</Badge>
+      </div>
+      {audioUrl && <audio
+        ref={audioRef}
+        src={audioUrl}
+        preload="metadata"
+        onEnded={finishPlayback}
+        onError={() => {
+          toast.error("Failed to load audio");
+          playFallback();
+        }}
+        />}
+      <div className="flex items-center gap-3">
+        {!isPlaying ? (
+          <Button size="sm" onClick={play} className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5">
+            <Play className="w-3.5 h-3.5 fill-current" />
+            Play Audio
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={stop} className="border-blue-300 text-blue-600 gap-1.5">
+            <StopCircle className="w-3.5 h-3.5" />
+            Stop
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -253,16 +354,21 @@ function ModelAudioPlayer({ text, taskType }: { text: string; taskType: string }
 
 // ─── Image display for Describe Image ────────────────────────────────────────
 
-function TaskImage({ imageUrl, taskType }: { imageUrl?: string; taskType: string }) {
+function TaskImage({ imageUrl, taskType, onStatusChange }: { imageUrl?: string; taskType: string; onStatusChange?: (isLoaded: boolean) => void }) {
   const [expanded, setExpanded] = useState(true);
   const [imgError, setImgError] = useState(false);
-  
-  // Reset error when imageUrl changes
+  const [imgLoading, setImgLoading] = useState(Boolean(imageUrl));
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Reset media state when moving to another planned question.
   useEffect(() => {
-    if (imageUrl && imgError) {
-      setImgError(false);
-    }
-  }, [imageUrl]);
+    setImgError(false);
+    setImgLoading(Boolean(imageUrl));
+    setRetryCount(0);
+    onStatusChange?.(taskType === "describe_image" ? false : true);
+  }, [imageUrl, onStatusChange, taskType]);
+
+  const imageSrc = imageUrl ? withMediaRetry(imageUrl, retryCount) : undefined;
 
   if (taskType !== "describe_image" && taskType !== "retell_lecture") return null;
 
@@ -283,33 +389,49 @@ function TaskImage({ imageUrl, taskType }: { imageUrl?: string; taskType: string
 
       {expanded && (
         <div className="p-4">
-          {imageUrl && !imgError ? (
+          {imageSrc && !imgError ? (
             <div className="relative">
               <img
-                src={imageUrl}
-                alt="Task image"
-                className="w-full max-h-80 object-contain rounded-xl border border-gray-100 bg-gray-50"
+                key={imageSrc}
+                src={imageSrc}
+                alt={taskType === "describe_image" ? "PTE Describe Image visual prompt" : "Lecture visual aid"}
+                className={`w-full max-h-80 object-contain rounded-xl border border-gray-100 bg-gray-50 ${imgLoading ? "opacity-40" : "opacity-100"}`}
                 crossOrigin="anonymous"
-                onError={() => setImgError(true)}
+                onLoad={() => {
+                  setImgLoading(false);
+                  onStatusChange?.(true);
+                }}
+                onError={() => {
+                  setImgLoading(false);
+                  setImgError(true);
+                  onStatusChange?.(false);
+                }}
               />
+              {imgLoading && <p className="mt-2 text-center text-xs text-gray-500">Loading visual prompt…</p>}
               <div className="mt-2 text-xs text-gray-400 text-center">
                 Study this image carefully during preparation time
               </div>
             </div>
           ) : (
-            // Placeholder when no image is available
-            <div className="flex flex-col items-center justify-center h-48 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border-2 border-dashed border-gray-200">
-              <ImageIcon className="w-10 h-10 text-gray-300 mb-2" />
-              <p className="text-sm font-medium text-gray-400">
-                {taskType === "describe_image" ? "Bar Chart / Graph / Process Diagram" : "Lecture Visual Aid"}
+            <div className="flex flex-col items-center justify-center min-h-48 rounded-xl border-2 border-dashed border-amber-200 bg-amber-50 px-5 text-center">
+              <ImageIcon className="mb-2 h-10 w-10 text-amber-400" />
+              <p className="text-sm font-semibold text-amber-800">
+                {imgError ? "Visual prompt could not be loaded" : taskType === "describe_image" ? "Visual prompt unavailable" : "No lecture visual aid provided"}
               </p>
-              <p className="text-xs text-gray-300 mt-1">Image will appear here in the full exam</p>
-              {/* Simulated chart placeholder */}
-              <div className="mt-3 flex items-end gap-1.5">
-                {[40, 65, 50, 80, 55, 70, 45].map((h, i) => (
-                  <div key={i} className="w-5 bg-teal-200 rounded-t" style={{ height: `${h * 0.4}px` }} />
-                ))}
-              </div>
+              <p className="mt-1 max-w-sm text-xs text-amber-700">
+                {taskType === "describe_image"
+                  ? "This Describe Image response cannot be scored until a valid image is available."
+                  : "Continue with the available lecture audio or prompt content."}
+              </p>
+              {imgError && imageUrl && (
+                <Button type="button" variant="outline" size="sm" onClick={() => {
+                  setImgError(false);
+                  setImgLoading(true);
+                  setRetryCount(previous => previous + 1);
+                }} className="mt-3 border-amber-300 text-amber-800">
+                  Retry visual
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -495,44 +617,52 @@ interface SpeakingTaskProps {
   taskType: string;
   originalText?: string;
   imageUrl?: string;           // for describe_image tasks
-  onRecordingComplete: (blob: Blob) => void;
+  questionAudioUrl?: string;   // for summarize_group_discussion, respond_to_situation
+  onRecordingComplete: (blob: Blob, metadata: { speechDetected: boolean }) => void;
   transcription?: string;
   isSubmitted?: boolean;
   recordingDuration?: number;
+  onVisualPromptStatusChange?: (isLoaded: boolean) => void;
 }
 
-type Phase = "prep" | "recording" | "done";
+type Phase = "prompt" | "prep" | "recording" | "done";
 
 export default function SpeakingTask({
   taskType,
   originalText,
   imageUrl,
+  questionAudioUrl,
   onRecordingComplete,
   transcription,
   isSubmitted,
   recordingDuration,
+  onVisualPromptStatusChange,
 }: SpeakingTaskProps) {
-  const timing = SPEAKING_TIMINGS[taskType] ?? { prep: 0, record: 40, label: "Speaking" };
+  const timing = getSpeakingTiming(taskType) ?? DEFAULT_SPEAKING_TIMING;
+  const isAudioLedTask = isAudioLedSpeakingTask(taskType);
   
   // Debug: log imageUrl
   useEffect(() => {
     console.log('[SpeakingTask] imageUrl:', imageUrl, 'taskType:', taskType);
   }, [imageUrl, taskType]);
 
-  const [phase, setPhase] = useState<Phase>(timing.prep > 0 ? "prep" : "recording");
+  const [phase, setPhase] = useState<Phase>(() => getInitialSpeakingPhase(taskType));
   const [prepRemaining, setPrepRemaining] = useState(timing.prep);
   const [recordRemaining, setRecordRemaining] = useState(timing.record);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [recordStart, setRecordStart] = useState<number>(0);
+  const recordStartRef = useRef(0);
   const [actualDuration, setActualDuration] = useState(0);
+  const [noSpeechDetected, setNoSpeechDetected] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const prepTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const voiceDetectionTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const speechDetectedRef = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const speechRecognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -579,36 +709,53 @@ export default function SpeakingTask({
         stream.getTracks().forEach(t => t.stop());
         audioCtx.close();
         analyserRef.current = null;
-        const dur = (Date.now() - recordStart) / 1000;
+        const dur = (Date.now() - recordStartRef.current) / 1000;
         setActualDuration(dur);
         setPhase("done");
         setAudioBlob(blob);
         // Create object URL for audio playback
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
-        onRecordingComplete(blob);
+        onRecordingComplete(blob, { speechDetected: speechDetectedRef.current });
         clearInterval(recordTimerRef.current);
+        clearInterval(voiceDetectionTimerRef.current);
       };
 
       mediaRecorder.start(100);
       const now = Date.now();
       setIsRecording(true);
-      setRecordStart(now);
+      setNoSpeechDetected(false);
+      speechDetectedRef.current = false;
+      recordStartRef.current = now;
       
-      // Play beep sound when recording starts
+      // Play double beep sound when recording starts - louder and more noticeable
       try {
         const beepCtx = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-        const osc = beepCtx.createOscillator();
         const gain = beepCtx.createGain();
-        osc.connect(gain);
         gain.connect(beepCtx.destination);
-        osc.frequency.value = 1000; // 1kHz beep
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, beepCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.1);
-        osc.start(beepCtx.currentTime);
-        osc.stop(beepCtx.currentTime + 0.1);
-        beepCtx.close();
+        
+        // First beep (higher pitch)
+        const osc1 = beepCtx.createOscillator();
+        osc1.connect(gain);
+        osc1.frequency.value = 1200; // Higher pitch
+        osc1.type = 'sine';
+        gain.gain.setValueAtTime(0.5, beepCtx.currentTime); // Louder
+        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.15);
+        osc1.start(beepCtx.currentTime);
+        osc1.stop(beepCtx.currentTime + 0.15);
+        
+        // Second beep (lower pitch) - 0.2 seconds after first
+        const osc2 = beepCtx.createOscillator();
+        osc2.connect(gain);
+        osc2.frequency.value = 800; // Lower pitch
+        osc2.type = 'sine';
+        gain.gain.setValueAtTime(0.5, beepCtx.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, beepCtx.currentTime + 0.35);
+        osc2.start(beepCtx.currentTime + 0.2);
+        osc2.stop(beepCtx.currentTime + 0.35);
+        
+        // Close context after beeps finish
+        setTimeout(() => beepCtx.close(), 400);
       } catch (e) {
         console.warn('Could not play beep sound:', e);
       }
@@ -616,17 +763,37 @@ export default function SpeakingTask({
       // Record countdown
       recordTimerRef.current = setInterval(() => {
         setRecordRemaining(prev => {
-          if (prev <= 1) {
+          const next = advanceCountdown(prev);
+          if (next.finished) {
             clearInterval(recordTimerRef.current);
             if (mediaRecorderRef.current?.state === "recording") {
               mediaRecorderRef.current.stop();
               setIsRecording(false);
             }
-            return 0;
           }
-          return prev - 1;
+          return next.remaining;
         });
       }, 1000);
+
+      voiceDetectionTimerRef.current = setInterval(() => {
+        const analyserNode = analyserRef.current;
+        if (!analyserNode) return;
+        const samples = new Uint8Array(analyserNode.fftSize);
+        analyserNode.getByteTimeDomainData(samples);
+        if (hasDetectedVoice(samples)) {
+          speechDetectedRef.current = true;
+          return;
+        }
+        if (shouldStopForNoSpeech(Date.now() - recordStartRef.current, speechDetectedRef.current)) {
+          clearInterval(voiceDetectionTimerRef.current);
+          setNoSpeechDetected(true);
+          toast.error("No speech was detected in the first 3 seconds. Please record your response again.");
+          if (mediaRecorderRef.current?.state === "recording") {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+          }
+        }
+      }, 150);
 
       // Web Speech API live transcript
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -658,7 +825,7 @@ export default function SpeakingTask({
     } catch {
       toast.error("Microphone access denied. Please allow microphone access in your browser settings.");
     }
-  }, [onRecordingComplete, recordStart, audioUrl]);
+  }, [onRecordingComplete]);
 
   // ── Stop recording manually ────────────────────────────────────────────────
 
@@ -669,7 +836,18 @@ export default function SpeakingTask({
     }
     speechRecognitionRef.current?.stop();
     clearInterval(recordTimerRef.current);
+    clearInterval(voiceDetectionTimerRef.current);
   }, []);
+
+  const retryAfterNoSpeech = useCallback(() => {
+    setNoSpeechDetected(false);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setLiveTranscript("");
+    setRecordRemaining(timing.record);
+    setPrepRemaining(timing.prep);
+    setPhase(getInitialSpeakingPhase(taskType));
+  }, [taskType, timing.prep, timing.record]);
 
   // ── Cleanup audio URL on unmount ────────────────────────────────────────────
 
@@ -689,8 +867,12 @@ export default function SpeakingTask({
 
     prepTimerRef.current = setInterval(() => {
       setPrepRemaining(prev => {
-        if (prev <= 1) { clearInterval(prepTimerRef.current); setPhase("recording"); return 0; }
-        return prev - 1;
+        const next = advanceCountdown(prev);
+        if (next.finished) {
+          clearInterval(prepTimerRef.current);
+          setPhase("recording");
+        }
+        return next.remaining;
       });
     }, 1000);
 
@@ -737,7 +919,7 @@ export default function SpeakingTask({
 
       {/* ── Image / Resource panel (always shown for describe_image) ── */}
       {(taskType === "describe_image" || taskType === "retell_lecture") && (
-        <TaskImage imageUrl={imageUrl} taskType={taskType} />
+        <TaskImage imageUrl={imageUrl} taskType={taskType} onStatusChange={onVisualPromptStatusChange} />
       )}
 
       {/* ── Persistent audio playback (always available after recording) ── */}
@@ -755,8 +937,19 @@ export default function SpeakingTask({
         </div>
       )}
 
+      {/* ── Prompt audio drives the next speaking phase for audio-led tasks ── */}
+      {isAudioLedTask && phase === "prompt" && (
+        <AudioURLPlayer
+          audioUrl={questionAudioUrl}
+          fallbackText={originalText}
+          label={taskType === "summarize_group_discussion" ? "Listen to Discussion" : taskType === "answer_short_question" ? "Listen to Question" : "Listen to Situation"}
+          autoPlay
+          onPlaybackComplete={() => setPhase(getPhaseAfterPromptPlayback(taskType))}
+        />
+      )}
+
       {/* ── Model audio player (shown before submission) ── */}
-      {!isSubmitted && modelText && (
+      {!isSubmitted && modelText && !isAudioLedTask && (
         <ModelAudioPlayer text={modelText} taskType={taskType} />
       )}
 
@@ -860,12 +1053,25 @@ export default function SpeakingTask({
 
       {/* ── DONE PHASE (before submission) ── */}
       {phase === "done" && !isSubmitted && (
-        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-6">
+        <div className={`rounded-2xl border p-6 ${noSpeechDetected ? "border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50" : "border-green-200 bg-gradient-to-br from-green-50 to-emerald-50"}`}>
           <div className="flex flex-col items-center gap-3">
-            <div className="w-14 h-14 rounded-full bg-green-100 border-4 border-green-400 flex items-center justify-center">
-              <CheckCircle className="w-7 h-7 text-green-500" />
+            <div className={`w-14 h-14 rounded-full border-4 flex items-center justify-center ${noSpeechDetected ? "border-amber-400 bg-amber-100" : "border-green-400 bg-green-100"}`}>
+              <CheckCircle className={`w-7 h-7 ${noSpeechDetected ? "text-amber-500" : "text-green-500"}`} />
             </div>
-            <p className="text-sm font-bold text-green-700">Recording Complete</p>
+            <p className={`text-sm font-bold ${noSpeechDetected ? "text-amber-800" : "text-green-700"}`}>
+              {noSpeechDetected ? "No Speech Detected" : "Recording Complete"}
+            </p>
+
+            {noSpeechDetected && (
+              <>
+                <p role="alert" className="text-center text-sm text-amber-800">
+                  No speech was detected within the first 3 seconds. This attempt will not be scored.
+                </p>
+                <Button onClick={retryAfterNoSpeech} className="bg-amber-600 text-white hover:bg-amber-700">
+                  Record Again
+                </Button>
+              </>
+            )}
 
             {liveTranscript && (
               <div className="w-full bg-white/80 rounded-xl border border-green-100 p-3">
@@ -891,7 +1097,7 @@ export default function SpeakingTask({
               </div>
             )}
 
-            <p className="text-xs text-green-500">Click Submit to get your AI score and pronunciation feedback</p>
+            {!noSpeechDetected && <p className="text-xs text-green-500">Click Submit to get your AI score and pronunciation feedback</p>}
           </div>
         </div>
       )}

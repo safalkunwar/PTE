@@ -16,8 +16,13 @@ dotenv.config();
 const conn = await mysql.createConnection(process.env.DATABASE_URL);
 
 async function clearOfficialQuestions() {
-  await conn.execute(`DELETE FROM questions WHERE source = 'official'`);
-  console.log("Cleared previous official questions.");
+  try {
+    await conn.execute(`DELETE FROM userResponses`);
+    await conn.execute(`DELETE FROM questions WHERE source = 'official'`);
+    console.log("Cleared previous official questions.");
+  } catch (e) {
+    console.log("Skipped clean due to FK constraint:", e.message);
+  }
 }
 
 async function insertQuestion(q) {
@@ -534,6 +539,36 @@ const allQuestions = [
     options:["The lecture argues that genetic uniformity is beneficial for species survival as it creates more predictable populations.","The lecture explains that meiosis is a process that creates genetically diverse gametes, which is essential for species survival and evolution.","The lecture describes how meiosis is a rare process found only in a few advanced species.","The lecture focuses on the negative effects of genetic diversity on population stability."],
     correctAnswer:"The lecture explains that meiosis is a process that creates genetically diverse gametes, which is essential for species survival and evolution.",
     timeLimit:120, tags:["biology","genetics"] },
+
+  // ── SPEAKING: Summarize Group Discussion ──────────────────────────────────
+  { taskType:"summarize_group_discussion", section:"speaking", title:"University Budget Allocation Discussion", difficulty:"medium",
+    prompt:"You will hear a group discussion. Summarize the discussion in your own words, covering the main points and conclusion.",
+    content:"Three students are discussing how the university should allocate its annual student society budget. Speaker A suggests increasing funding for sports clubs because they engage the highest number of students. Speaker B argues that academic societies and research clubs need more support to help students build professional resumes. Speaker C proposes a compromise: allocating a baseline grant to all active clubs while distributing additional performance-based funds. In conclusion, the group agrees to present Speaker C's compromise model to the student council.",
+    modelAnswer:"The group discussed university student society budget allocation. Speaker A favored sports clubs, while Speaker B emphasized academic societies. Speaker C proposed a compromise combining baseline grants with performance-based funding, which the group agreed to present to the council.",
+    audioUrl:"https://actions.google.com/sounds/v1/ambiences/office_ambience.ogg",
+    timeLimit:120, preparationTime:10, tags:["discussion","university","budget"] },
+
+  { taskType:"summarize_group_discussion", section:"speaking", title:"Remote Work vs Office Productivity", difficulty:"hard",
+    prompt:"You will hear a group discussion. Summarize the discussion in your own words, covering the main points and conclusion.",
+    content:"A team of managers debates the long-term viability of hybrid work models. Manager 1 emphasizes that remote work improves employee retention, flexibility, and daily productivity. Manager 2 counters that lack of in-person collaboration stifles creative brainstorming and weakens company culture. Manager 3 suggests that a structured hybrid model—requiring two designated collaboration days in the office and three flexible remote days—satisfies both needs. The discussion concludes with an agreement to trial this hybrid policy for six months.",
+    modelAnswer:"The managers debated hybrid work models, weighing employee flexibility against in-person collaboration. Manager 3 proposed a structured schedule with two office collaboration days and three remote days, which the team agreed to trial for six months.",
+    audioUrl:"https://actions.google.com/sounds/v1/ambiences/office_ambience.ogg",
+    timeLimit:120, preparationTime:10, tags:["workplace","management","remote_work"] },
+
+  // ── SPEAKING: Respond to a Situation ──────────────────────────────────────
+  { taskType:"respond_to_situation", section:"speaking", title:"Library Book Overdue Notice", difficulty:"medium",
+    prompt:"You will hear a short description of a situation. Respond appropriately as if speaking to the librarian.",
+    content:"You receive an email stating that a reference book you borrowed is overdue by two weeks, but you returned it before leaving for the mid-term break. Speak to the librarian to resolve the issue.",
+    modelAnswer:"Excuse me, I received an automated notice saying my reference book is overdue. However, I returned it to the front desk right before the mid-term break. Could you please check the return cart or update my library account?",
+    audioUrl:"https://actions.google.com/sounds/v1/communication/telephone_ring.ogg",
+    timeLimit:40, preparationTime:10, tags:["library","situation","customer_service"] },
+
+  { taskType:"respond_to_situation", section:"speaking", title:"Professor Office Hours Conflict", difficulty:"hard",
+    prompt:"You will hear a short description of a situation. Respond appropriately as if speaking to your professor.",
+    content:"You missed your professor's scheduled office hours because of a medical emergency and need to discuss your essay outline before submission. Speak to your professor to request an alternative meeting time.",
+    modelAnswer:"Professor, I sincerely apologize for missing our scheduled office hours yesterday due to an unexpected medical emergency. My essay outline is ready, and I would greatly appreciate a brief alternative meeting time this week to get your feedback before submission.",
+    audioUrl:"https://actions.google.com/sounds/v1/communication/telephone_ring.ogg",
+    timeLimit:40, preparationTime:10, tags:["academic","professor","meeting"] },
 ];
 
 let inserted = 0;
@@ -552,3 +587,5 @@ for (const q of allQuestions) {
 
 console.log(`\n\n✅ Done! Inserted ${inserted} official questions. Failed: ${failed}.`);
 await conn.end();
+
+

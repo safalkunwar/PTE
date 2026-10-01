@@ -1,15 +1,14 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { lazy, Suspense } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { getPageTransition } from "./lib/pageTransition";
 
 // Eagerly load the landing page for instant first paint
 import Home from "./pages/Home";
-import Login from "./pages/Login";
-import AuthCallback from "./pages/AuthCallback";
 
 // Lazy-load all authenticated pages to reduce initial bundle size
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -30,6 +29,10 @@ const Profile = lazy(() => import("./pages/Profile"));
 const CoachingPlan = lazy(() => import("./pages/CoachingPlan"));
 const RevisionMode = lazy(() => import("./pages/RevisionMode"));
 const Resources = lazy(() => import("./pages/Resources"));
+const AdminQuestionManager = lazy(() => import("./pages/AdminQuestionManager"));
+const PracticeHistory = lazy(() => import("./pages/PracticeHistory"));
+const VocabularyFlashcards = lazy(() => import("./pages/VocabularyFlashcards"));
+const CommunityLeaderboard = lazy(() => import("./pages/CommunityLeaderboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageLoader() {
@@ -58,17 +61,29 @@ function PageLoader() {
 }
 
 function Router() {
+  const [location] = useLocation();
+  const reducedMotion = useReducedMotion() ?? false;
+  const transition = getPageTransition(reducedMotion);
+
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Switch>
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={location}
+        initial={transition.initial}
+        animate={transition.animate}
+        exit={transition.exit}
+        transition={transition.transition}
+        className="min-h-screen"
+      >
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
         <Route path="/" component={Home} />
-        <Route path="/login" component={Login} />
-        <Route path="/auth/callback" component={AuthCallback} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/admin/dashboard" component={AdminDashboardPage} />
         <Route path="/admin/users" component={AdminUsersPage} />
         <Route path="/admin/payments" component={AdminPaymentsPage} />
+        <Route path="/admin/questions" component={AdminQuestionManager} />
         <Route path="/payments" component={PaymentHistory} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/system-admin" component={SystemAdminPanel} />
@@ -78,15 +93,20 @@ function Router() {
         <Route path="/mock-test" component={MockTest} />
         <Route path="/score-report/:sessionId" component={ScoreReport} />
         <Route path="/analytics" component={Analytics} />
+        <Route path="/practice-history" component={PracticeHistory} />
+        <Route path="/vocabulary" component={VocabularyFlashcards} />
+        <Route path="/community" component={CommunityLeaderboard} />
         <Route path="/learning-modes" component={LearningModes} />
         <Route path="/profile" component={Profile} />
         <Route path="/coaching-plan" component={CoachingPlan} />
         <Route path="/revision" component={RevisionMode} />
         <Route path="/resources" component={Resources} />
         <Route path="/404" component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
-    </Suspense>
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

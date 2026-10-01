@@ -6,6 +6,8 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useParams } from "wouter";
 import { Link } from "wouter";
+import { AnimatedScoreCounter } from "@/components/AnimatedScoreCounter";
+import { ScoreCelebration } from "@/components/ScoreCelebration";
 import {
   Trophy, ArrowRight, BarChart3, CheckCircle, AlertCircle,
   TrendingUp, TrendingDown, Minus, Download, Share2,
@@ -27,7 +29,7 @@ function ScoreCircle({ score, label, color }: { score: number; label: string; co
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-lg font-extrabold text-foreground">{Math.round(score)}</span>
+          <AnimatedScoreCounter value={score} className="text-lg font-extrabold text-foreground" />
         </div>
       </div>
       <span className="text-xs text-muted-foreground text-center">{label}</span>
@@ -125,7 +127,8 @@ export default function ScoreReport() {
     <PTELayout title="Score Report">
       <div className="max-w-4xl space-y-6">
         {/* Header */}
-        <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground">
+        <div className="relative overflow-hidden bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground">
+          <ScoreCelebration score={report.overallScore} />
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -142,7 +145,7 @@ export default function ScoreReport() {
               </div>
             </div>
             <div className="text-center">
-              <div className="text-6xl font-extrabold">{report.overallScore ? Math.round(report.overallScore) : "—"}</div>
+              <AnimatedScoreCounter value={report.overallScore} className="text-6xl font-extrabold" ariaLabel="Overall score" />
               <div className="text-primary-foreground/70 text-sm">Overall Score</div>
               <div className="text-primary-foreground/50 text-xs">(10–90 scale)</div>
             </div>

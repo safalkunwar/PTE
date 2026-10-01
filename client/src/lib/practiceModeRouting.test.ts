@@ -6,9 +6,9 @@ describe("practice mode routing", () => {
     expect(getDedicatedPracticeModeRoute("revision")).toBe("/revision");
   });
 
-  it("creates normal practice sessions for the other modes", () => {
+  it("routes Exam Mode to the real Mock Test flow", () => {
     expect(getDedicatedPracticeModeRoute("beginner")).toBeNull();
-    expect(getDedicatedPracticeModeRoute("exam")).toBeNull();
+    expect(getDedicatedPracticeModeRoute("exam")).toBe("/mock-test");
     expect(getDedicatedPracticeModeRoute("diagnostic")).toBeNull();
   });
 });

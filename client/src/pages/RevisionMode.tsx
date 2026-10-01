@@ -296,10 +296,15 @@ function CardDeck() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Loading your review deck...</p>
+      <div className="space-y-4 animate-pulse" aria-busy="true" aria-label="Loading review deck">
+        <div className="h-5 w-32 rounded bg-gray-200" />
+        <div className="min-h-64 rounded-2xl border border-gray-100 bg-white p-8 space-y-5">
+          <div className="h-5 w-1/3 rounded bg-gray-200" />
+          <div className="h-8 w-4/5 rounded bg-gray-200" />
+          <div className="h-24 rounded-xl bg-gray-100" />
+          <div className="grid grid-cols-5 gap-2">
+            {[1, 2, 3, 4, 5].map((item) => <div key={item} className="h-10 rounded-lg bg-gray-100" />)}
+          </div>
         </div>
       </div>
     );
@@ -506,7 +511,16 @@ function CardDeck() {
 function UpcomingCards() {
   const { data: upcoming, isLoading } = trpc.srs.getUpcomingCards.useQuery({ limit: 8 });
 
-  if (isLoading || !upcoming || upcoming.length === 0) return null;
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mt-4 space-y-3 animate-pulse" aria-busy="true" aria-label="Loading upcoming reviews">
+        <div className="h-4 w-40 rounded bg-gray-200" />
+        {[1, 2, 3].map((item) => <div key={item} className="h-10 rounded-lg bg-gray-100" />)}
+      </div>
+    );
+  }
+
+  if (!upcoming || upcoming.length === 0) return null;
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mt-4">

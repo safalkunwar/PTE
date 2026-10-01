@@ -75,11 +75,18 @@ export async function transcribeAudio(
 ): Promise<TranscriptionResponse | TranscriptionError> {
   try {
     // Step 1: Validate environment configuration
-    if (!ENV.openaiApiKey) {
+    if (!ENV.forgeApiUrl) {
       return {
         error: "Voice transcription service is not configured",
         code: "SERVICE_ERROR",
-        details: "OPENAI_API_KEY is not set",
+        details: "BUILT_IN_FORGE_API_URL is not set"
+      };
+    }
+    if (!ENV.forgeApiKey) {
+      return {
+        error: "Voice transcription service authentication is missing",
+        code: "SERVICE_ERROR",
+        details: "BUILT_IN_FORGE_API_KEY is not set"
       };
     }
 
@@ -136,12 +143,19 @@ export async function transcribeAudio(
     formData.append("prompt", prompt);
 
     // Step 4: Call the transcription service
-    const fullUrl = "https://api.openai.com/v1/audio/transcriptions";
+    const baseUrl = ENV.forgeApiUrl.endsWith("/")
+      ? ENV.forgeApiUrl
+      : `${ENV.forgeApiUrl}/`;
+    
+    const fullUrl = new URL(
+      "v1/audio/transcriptions",
+      baseUrl
+    ).toString();
 
     const response = await fetch(fullUrl, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${ENV.openaiApiKey}`,
+        authorization: `Bearer ${ENV.forgeApiKey}`,
         "Accept-Encoding": "identity",
       },
       body: formData,

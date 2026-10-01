@@ -9,6 +9,8 @@
  * - Model answer generation at band 65, 79, and 90
  */
 import { invokeLLM } from "./_core/llm";
+import { detectGrammarSignals, measureVocabularySophistication } from "./coachingSignals";
+import { capPromptText } from "./aiPromptUtils";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERFACES
@@ -46,6 +48,25 @@ export interface TaskFeedback {
   nextSteps: string[];
   estimatedScoreRange: { min: number; max: number };
   reasoning: string; // chain-of-thought
+}
+
+export const MODEL_ANSWER_BANDS = ["65", "79", "90"] as const;
+
+export function normalizeModelAnswers(input: unknown): TaskFeedback["modelAnswers"] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((answer): answer is { band: string; response: string; commentary: string } =>
+      typeof answer === "object" && answer !== null &&
+      MODEL_ANSWER_BANDS.includes((answer as { band?: string }).band as typeof MODEL_ANSWER_BANDS[number]) &&
+      typeof (answer as { response?: unknown }).response === "string" &&
+      typeof (answer as { commentary?: unknown }).commentary === "string"
+    )
+    .map(answer => ({
+      band: answer.band as "65" | "79" | "90",
+      response: answer.response.trim(),
+      commentary: answer.commentary.trim(),
+    }))
+    .filter(answer => answer.response.length > 0 && answer.commentary.length > 0);
 }
 
 export interface PersonalizedCoachingPlan {
@@ -456,10 +477,14 @@ STEP 6 — CALIBRATE BAND: Based on the raw score of ${params.score}/100, assign
 
 Return ONLY valid JSON matching this exact schema:`;
 
+  const grammarSignals = detectGrammarSignals(params.userResponse);
+  const vocabularyMetrics = measureVocabularySophistication(params.userResponse);
   const userContent = `Task Type: ${params.taskType.replace(/_/g, " ").toUpperCase()}
-Question/Prompt: ${params.question}
-Student's Response: ${params.userResponse}${params.transcription ? `\nTranscription: ${params.transcription}` : ""}${params.wordCount ? `\nWord Count: ${params.wordCount}` : ""}${params.correctAnswer ? `\nCorrect Answer: ${params.correctAnswer}` : ""}
-Raw Score: ${params.score}/100`;
+Question/Prompt: ${capPromptText(params.question, 6000)}
+Student's Response: ${capPromptText(params.userResponse, 8000)}${params.transcription ? `\nTranscription: ${capPromptText(params.transcription, 8000)}` : ""}${params.wordCount ? `\nWord Count: ${params.wordCount}` : ""}${params.correctAnswer ? `\nCorrect Answer: ${capPromptText(params.correctAnswer, 2000)}` : ""}
+Raw Score: ${params.score}/100
+Deterministic grammar signals: ${JSON.stringify(grammarSignals)}
+Vocabulary metrics: ${JSON.stringify(vocabularyMetrics)}`;
 
   try {
     const result = await invokeLLM({
@@ -562,8 +587,8 @@ Raw Score: ${params.score}/100`;
       overallBand: parsed.overallBand,
       scoreBreakdown: parsed.scoreBreakdown ?? [],
       detailedFeedback: parsed.detailedFeedback ?? "",
-      specificErrors: parsed.specificErrors ?? [],
-      modelAnswers: parsed.modelAnswers ?? [],
+      specificErrors: [...grammarSignals, ...(parsed.specificErrors ?? [])],
+      modelAnswers: normalizeModelAnswers(parsed.modelAnswers),
       improvementTips: parsed.improvementTips ?? [],
       nextSteps: parsed.nextSteps ?? [],
       estimatedScoreRange: parsed.estimatedScoreRange ?? { min: 40, max: 60 },

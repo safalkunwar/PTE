@@ -1,0 +1,9 @@
+{
+  "query": "\nUPDATE questions SET taskType = 'fill_blanks_listening' WHERE taskType = 'fill_in_blanks_listening';\nUPDATE questions SET taskType = 'fill_blanks_reading' WHERE taskType = 'fill_in_blanks_reading';\nUPDATE questions SET taskType = 'fill_blanks_rw' WHERE taskType = 'fill_in_blanks_reading_writing';\nUPDATE questions SET taskType = 'multiple_choice_single' WHERE taskType = 'multiple_choice_single_listening';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4HtZwcVYhdUL7pR.root --database HHnb9eqJbcMAZQp3ndSVqE --execute \nUPDATE questions SET taskType = 'fill_blanks_listening' WHERE taskType = 'fill_in_blanks_listening';\nUPDATE questions SET taskType = 'fill_blanks_reading' WHERE taskType = 'fill_in_blanks_reading';\nUPDATE questions SET taskType = 'fill_blanks_rw' WHERE taskType = 'fill_in_blanks_reading_writing';\nUPDATE questions SET taskType = 'multiple_choice_single' WHERE taskType = 'multiple_choice_single_listening';\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 149
+}

@@ -4,10 +4,14 @@
  */
 
 import { router, protectedProcedure } from "../_core/trpc";
+import os from "node:os";
+import { getDb } from "../db";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as adminDb from "../admin/adminDb";
 import * as analyticsDb from "../admin/analyticsDb";
+import { getAdminUserDetails, listAdminUsers, setUserBanStatus, setUserRole } from "../admin/userAdmin";
+import { canDemoteUser, canSuspendUser } from "../admin/adminPolicy";
 /**
  * Admin-only procedure - checks for super admin role
  */
@@ -25,25 +29,37 @@ export const systemAdminRouter = router({
   /**
    * Get system health status
    */
-  getSystemHealth: adminOnlyProcedure.query(async ({ ctx }) => {
+  getSystemHealth: adminOnlyProcedure.query(async () => {
     try {
-      // In production, fetch real metrics from monitoring service
+      const db = await getDb();
+      let database = "unavailable" as "connected" | "unavailable";
+      if (db) {
+        await db.execute("SELECT 1");
+        database = "connected";
+      }
+      const cpu = Math.round(Math.min(100, (os.loadavg()[0] / Math.max(1, os.cpus().length)) * 100));
+      const memory = Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100);
+      const emailConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== "test_key");
+      const paymentsConfigured = Boolean(
+        (process.env.KHALTI_SECRET_KEY && process.env.KHALTI_SECRET_KEY !== "test_secret_key") ||
+        (process.env.ESEWA_MERCHANT_CODE && process.env.ESEWA_MERCHANT_CODE !== "TESTMERCHANT")
+      );
+      const services = [
+        { name: "API Server", status: "operational", uptime: `${Math.floor(process.uptime() / 3600)}h` },
+        { name: "Database", status: database === "connected" ? "operational" : "unavailable", uptime: "runtime check" },
+        { name: "Email Service", status: emailConfigured ? "configured" : "not_configured", uptime: "configuration check" },
+        { name: "Payment Gateway", status: paymentsConfigured ? "configured" : "not_configured", uptime: "configuration check" },
+        { name: "Storage Service", status: "configured", uptime: "runtime check" },
+      ];
       return {
-        status: "healthy" as const,
-        cpu: Math.floor(Math.random() * 80),
-        memory: Math.floor(Math.random() * 80),
-        database: "connected" as const,
+        status: database === "connected" ? "healthy" as const : "degraded" as const,
+        cpu,
+        memory,
+        database,
         api: "operational" as const,
-        uptime: "45 days 12 hours",
+        uptime: `${Math.floor(process.uptime() / 3600)} hours`,
         lastCheck: new Date().toISOString(),
-        services: [
-          { name: "API Server", status: "operational", uptime: "99.9%" },
-          { name: "Database", status: "operational", uptime: "99.95%" },
-          { name: "Cache Server", status: "operational", uptime: "100%" },
-          { name: "Email Service", status: "operational", uptime: "99.8%" },
-          { name: "Payment Gateway", status: "operational", uptime: "99.99%" },
-          { name: "Storage Service", status: "operational", uptime: "99.9%" },
-        ],
+        services,
       };
     } catch (error) {
       console.error("[Admin] Error fetching system health:", error);
@@ -84,25 +100,66 @@ export const systemAdminRouter = router({
     }),
 
   /**
-   * Ban or unban a user
+   * List users with real persisted role and ban state.
+   */
+  listUsers: adminOnlyProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(50),
+      offset: z.number().int().min(0).default(0),
+      search: z.string().optional(),
+      role: z.enum(["user", "admin"]).optional(),
+      isBanned: z.boolean().optional(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        return await listAdminUsers(input);
+      } catch (error) {
+        console.error("[Admin] Error listing users:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Unable to list users" });
+      }
+    }),
+
+  /**
+   * View one user's persisted profile, subscriptions, and recent sessions.
+   */
+  getUserDetails: adminOnlyProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const details = await getAdminUserDetails(input.userId);
+      if (!details) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      return details;
+    }),
+
+  /**
+   * Ban or unban a user. An administrator may not suspend their own account.
    */
   toggleUserBan: adminOnlyProcedure
-    .input(
-      z.object({
-        userId: z.number(),
-        reason: z.string().optional(),
-      })
-    )
+    .input(z.object({
+      userId: z.number().int().positive(),
+      isBanned: z.boolean(),
+      reason: z.string().max(500).optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
-      // Log the action
-      console.log(`[Admin] ${ctx.user?.name} toggled ban status for user ${input.userId}`);
+      if (!canSuspendUser(ctx.user.id, input.userId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Administrators cannot suspend their own account" });
+      }
+      const updated = await setUserBanStatus(input.userId, input.isBanned, input.reason);
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      return { success: true, ...updated };
+    }),
 
-      return {
-        success: true,
-        message: "User ban status updated",
-        userId: input.userId,
-        timestamp: new Date().toISOString(),
-      };
+  /**
+   * Promote or demote a user. Administrators may not demote themselves.
+   */
+  setUserRole: adminOnlyProcedure
+    .input(z.object({ userId: z.number().int().positive(), role: z.enum(["user", "admin"]) }))
+    .mutation(async ({ input, ctx }) => {
+      if (!canDemoteUser(ctx.user.id, input.userId, input.role)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Administrators cannot demote their own account" });
+      }
+      const updated = await setUserRole(input.userId, input.role);
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      return { success: true, ...updated };
     }),
 
   /**

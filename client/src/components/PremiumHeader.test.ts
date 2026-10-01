@@ -21,4 +21,12 @@ describe("persistent PTE module task menus", () => {
       "summarize_group_discussion",
     ]));
   });
+
+  it("can route a menu task directly into its focused session", () => {
+    const retellLecture = menuItems.speaking.find(item => item.taskType === "retell_lecture");
+    expect(retellLecture).toBeDefined();
+    expect(getPracticeTaskUrl({ ...retellLecture!, autoStart: true })).toBe(
+      "/practice/speaking?taskType=retell_lecture&start=1",
+    );
+  });
 });

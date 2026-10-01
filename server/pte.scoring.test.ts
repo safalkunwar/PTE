@@ -127,6 +127,15 @@ describe("scoreObjectiveTask", () => {
       expect(result.score).toBe(100);
     });
 
+    it("parses persisted JSON answer keys case-insensitively", () => {
+      const result = scoreObjectiveTask({
+        taskType: "highlight_incorrect_words",
+        correctAnswer: '["Fiscal","spending","recession"]',
+        userAnswer: ["fiscal", "spending", "recession"],
+      });
+      expect(result.score).toBe(100);
+    });
+
     it("penalises false positives", () => {
       const result = scoreObjectiveTask({
         taskType: "highlight_incorrect_words",
@@ -134,6 +143,26 @@ describe("scoreObjectiveTask", () => {
         userAnswer: ["word1", "word2", "word3"],
       });
       expect(result.score).toBeLessThan(100);
+    });
+  });
+
+  describe("fill_blanks_rw", () => {
+    it("scores object-shaped gap answers in gap order", () => {
+      const result = scoreObjectiveTask({
+        taskType: "fill_blanks_rw",
+        correctAnswer: JSON.stringify({ gap1: "experiences", gap2: "surface", gap3: "conditioning", gap4: "universal" }),
+        userAnswer: ["experiences", "surface", "conditioning", "universal"],
+      });
+      expect(result.score).toBe(100);
+    });
+
+    it("awards partial credit for object-shaped gaps with one incorrect selection", () => {
+      const result = scoreObjectiveTask({
+        taskType: "fill_blanks_rw",
+        correctAnswer: JSON.stringify({ gap1: "essential", gap2: "repairs", gap3: "sacrifice", gap4: "maintain" }),
+        userAnswer: ["essential", "wrong", "sacrifice", "maintain"],
+      });
+      expect(result.score).toBe(75);
     });
   });
 
@@ -167,11 +196,7 @@ describe("auth.logout", () => {
     const ctx: TrpcContext = {
       user: {
         id: 1, openId: "test", email: "test@test.com", name: "Test",
-        loginMethod: "google", role: "user",
-        targetScore: 65,
-        currentLevel: "intermediate",
-        dailyGoalMinutes: 30,
-        notificationsEnabled: true,
+        loginMethod: "manus", role: "user",
         createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date(),
       },
       req: { protocol: "https", headers: {} } as TrpcContext["req"],

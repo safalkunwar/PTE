@@ -9,6 +9,7 @@ import {
   GraduationCap, Clock, Mic, PenLine, Eye, Headphones,
   ChevronRight, Info, AlertCircle, CheckCircle, Play
 } from "lucide-react";
+import { getSectionalTestConfig, type SectionalTestSection } from "@shared/sectionalTests";
 
 const mockTestSections = [
   {
@@ -72,7 +73,8 @@ const mockTestSections = [
 export default function MockTest() {
   const [started, setStarted] = useState(false);
   const [selectedMode, setSelectedMode] = useState<"full" | "section">("full");
-  const [selectedSection, setSelectedSection] = useState<string>("speaking");
+  const [selectedSection, setSelectedSection] = useState<SectionalTestSection>("speaking");
+  const selectedSectionConfig = getSectionalTestConfig(selectedSection)!;
   const createSession = trpc.sessions.create.useMutation();
 
   const startMockTest = async () => {
@@ -81,10 +83,14 @@ export default function MockTest() {
         sessionType: selectedMode === "full" ? "mock_test" : "section_practice",
         section: selectedMode === "section" ? selectedSection as any : undefined,
         mode: "exam",
-        totalQuestions: selectedMode === "full" ? 20 : 5,
+        totalQuestions: selectedMode === "full" ? 20 : selectedSectionConfig.questionCount,
       });
-      // Navigate to first question
-      window.location.href = `/session/${session.id}?mode=exam&mockTest=true`;
+      const firstQuestion = Array.isArray(session.questionPlan) ? session.questionPlan[0] as { questionId?: number } | undefined : undefined;
+      if (!firstQuestion?.questionId) {
+        toast.error("This test has no available questions yet.");
+        return;
+      }
+      window.location.href = `/session/${session.id}?questionId=${firstQuestion.questionId}&mode=exam&mockTest=true`;
     } catch {
       toast.error("Failed to start mock test");
     }
@@ -141,23 +147,24 @@ export default function MockTest() {
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Play className="w-5 h-5 text-primary" />
-                  <span className="font-semibold text-foreground">Section Practice</span>
+                  <span className="font-semibold text-foreground">Sectional Test</span>
                   {selectedMode === "section" && <CheckCircle className="w-4 h-4 text-primary ml-auto" />}
                 </div>
-                <p className="text-xs text-muted-foreground">Practice one section at a time with exam conditions.</p>
+                <p className="text-xs text-muted-foreground">Complete one whole PTE section with every task family, timed like an exam.</p>
                 <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                   <Clock className="w-3 h-3" />
-                  30–90 min
+                  {selectedSectionConfig.durationMinutes} min
                 </div>
               </button>
             </div>
 
             {selectedMode === "section" && (
-              <div className="flex flex-wrap gap-2 pt-2">
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-wrap gap-2">
                 {["speaking", "writing", "reading", "listening"].map((s) => (
                   <button
                     key={s}
-                    onClick={() => setSelectedSection(s)}
+                    onClick={() => setSelectedSection(s as SectionalTestSection)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${
                       selectedSection === s
                         ? "bg-primary text-primary-foreground"
@@ -167,6 +174,12 @@ export default function MockTest() {
                     {s}
                   </button>
                 ))}
+                </div>
+                <div className="rounded-xl border border-primary/15 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  <p className="font-semibold text-foreground">{selectedSectionConfig.label} · {selectedSectionConfig.questionCount} task types</p>
+                  <p className="mt-1">{selectedSectionConfig.description}</p>
+                  <p className="mt-1">{selectedSectionConfig.scoringNote}</p>
+                </div>
               </div>
             )}
           </CardContent>
@@ -232,7 +245,7 @@ export default function MockTest() {
           >
             {createSession.isPending ? "Starting..." : (
               <>
-                Start {selectedMode === "full" ? "Full Mock Test" : `${selectedSection.charAt(0).toUpperCase() + selectedSection.slice(1)} Section`}
+                Start {selectedMode === "full" ? "Full Mock Test" : `${selectedSection.charAt(0).toUpperCase() + selectedSection.slice(1)} Sectional Test`}
                 <ChevronRight className="w-5 h-5 ml-2" />
               </>
             )}

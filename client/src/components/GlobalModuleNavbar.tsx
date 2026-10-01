@@ -129,6 +129,7 @@ export const GlobalModuleNavbar: React.FC<GlobalModuleNavbarProps> = ({
                           onClick={() => setLocation(getPracticeTaskUrl({
                             section: section as 'speaking' | 'writing' | 'reading' | 'listening',
                             taskType: task.id,
+                            autoStart: true,
                           }))}
                           className="flex w-full items-center justify-between px-2 py-1.5 rounded hover:bg-muted transition-colors text-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                         >

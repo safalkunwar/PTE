@@ -15,6 +15,12 @@ describe("practice route mapping", () => {
     );
   });
 
+  it("adds an explicit auto-start flag for focused navbar tasks", () => {
+    expect(getPracticeTaskUrl({ section: "speaking", taskType: "retell_lecture", autoStart: true })).toBe(
+      "/practice/speaking?taskType=retell_lecture&start=1",
+    );
+  });
+
   it("preserves a valid feature route for non-task menu entries", () => {
     expect(getPracticeTaskUrl({ href: "/analytics" })).toBe("/analytics");
     expect(getPracticeTaskUrl({})).toBe("/practice");

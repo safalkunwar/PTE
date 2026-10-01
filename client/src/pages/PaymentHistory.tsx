@@ -1,10 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  CreditCard, Download, Calendar, DollarSign, CheckCircle, Clock, XCircle,
+  CreditCard, Calendar, DollarSign, CheckCircle, Clock, XCircle,
   RefreshCw, ArrowRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -17,17 +18,17 @@ interface Payment {
   status: "pending" | "completed" | "failed" | "refunded";
   description: string;
   transactionId?: string;
-  createdAt: string;
-  completedAt?: string;
+  createdAt: string | Date;
+  completedAt?: string | Date;
 }
 
 interface Subscription {
   id: number;
   planName: string;
   status: "active" | "inactive" | "canceled" | "expired";
-  startDate: string;
-  endDate?: string;
-  renewalDate?: string;
+  startDate: string | Date;
+  endDate?: string | Date;
+  renewalDate?: string | Date;
   autoRenew: boolean;
   price: number;
   features: string[];
@@ -35,64 +36,45 @@ interface Subscription {
 
 export default function PaymentHistory() {
   const { user } = useAuth();
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"payments" | "subscription">("payments");
+  const paymentQuery = trpc.payment.getPaymentHistory.useQuery(undefined, { enabled: Boolean(user) });
+  const subscriptionQuery = trpc.payment.getActiveSubscription.useQuery(undefined, { enabled: Boolean(user) });
+  const utils = trpc.useUtils();
+  const autoRenewMutation = trpc.payment.setAutoRenew.useMutation({
+    onSuccess: async () => {
+      await utils.payment.getActiveSubscription.invalidate();
+      await utils.payment.getSubscriptions.invalidate();
+    },
+  });
 
-  useEffect(() => {
-    if (!user) return;
-    loadPaymentData();
-  }, [user]);
+  const payments = useMemo<Payment[]>(() => (paymentQuery.data ?? []).map((payment) => ({
+    id: payment.id,
+    amount: payment.amount,
+    gateway: payment.gateway,
+    status: payment.status,
+    description: payment.description ?? "Subscription payment",
+    transactionId: payment.transactionId ?? undefined,
+    createdAt: payment.createdAt,
+    completedAt: payment.completedAt ?? undefined,
+  })), [paymentQuery.data]);
 
-  const loadPaymentData = async () => {
-    setLoading(true);
-    try {
-      // In production, fetch from tRPC
-      // const paymentHistory = await trpc.payment.getPaymentHistory.useQuery();
-      // const activeSubscription = await trpc.payment.getActiveSubscription.useQuery();
+  const subscription = useMemo<Subscription | null>(() => {
+    const value = subscriptionQuery.data;
+    if (!value) return null;
+    return {
+      id: value.id,
+      planName: value.plan?.name ?? "Subscription",
+      status: value.status,
+      startDate: value.startDate,
+      endDate: value.endDate ?? undefined,
+      renewalDate: value.renewalDate ?? undefined,
+      autoRenew: Boolean(value.autoRenew),
+      price: value.plan?.price ?? 0,
+      features: Array.isArray(value.plan?.features) ? value.plan.features.map(String) : [],
+    };
+  }, [subscriptionQuery.data]);
 
-      // Mock data for now
-      setPayments([
-        {
-          id: 1,
-          amount: 999,
-          gateway: "khalti",
-          status: "completed",
-          description: "Pro Plan - Monthly",
-          transactionId: "KHL123456789",
-          createdAt: "2026-03-10T10:30:00Z",
-          completedAt: "2026-03-10T10:35:00Z",
-        },
-        {
-          id: 2,
-          amount: 1999,
-          gateway: "esewa",
-          status: "completed",
-          description: "Premium Plan - Yearly",
-          transactionId: "ESW987654321",
-          createdAt: "2026-02-15T14:20:00Z",
-          completedAt: "2026-02-15T14:25:00Z",
-        },
-      ]);
-
-      setSubscription({
-        id: 1,
-        planName: "Pro",
-        status: "active",
-        startDate: "2026-03-10T00:00:00Z",
-        endDate: "2026-04-10T00:00:00Z",
-        renewalDate: "2026-04-10T00:00:00Z",
-        autoRenew: true,
-        price: 999,
-        features: ["Unlimited Practice", "AI Feedback", "Analytics Dashboard", "Priority Support"],
-      });
-    } catch (error) {
-      console.error("Failed to load payment data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = paymentQuery.isLoading || subscriptionQuery.isLoading;
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -124,7 +106,7 @@ export default function PaymentHistory() {
     }
   };
 
-  const formatDate = (date: string) => {
+  const formatDate = (date: string | Date) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
@@ -136,6 +118,31 @@ export default function PaymentHistory() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-slate-500">Please log in to view payment history</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">
+        <div className="max-w-4xl mx-auto px-4 space-y-6" aria-busy="true" aria-label="Loading billing data">
+          <div className="space-y-3 animate-pulse">
+            <div className="h-10 w-64 rounded-lg bg-slate-200" />
+            <div className="h-4 w-96 max-w-full rounded bg-slate-200" />
+          </div>
+          <div className="flex gap-2">
+            <div className="h-10 w-40 rounded-lg bg-slate-200 animate-pulse" />
+            <div className="h-10 w-32 rounded-lg bg-slate-200 animate-pulse" />
+          </div>
+          <div className="rounded-xl bg-white p-6 shadow-sm space-y-5 animate-pulse">
+            <div className="h-6 w-48 rounded bg-slate-200" />
+            <div className="h-4 w-72 max-w-full rounded bg-slate-200" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((item) => <div key={item} className="h-20 rounded-lg bg-slate-100" />)}
+            </div>
+            <div className="h-24 rounded-lg bg-slate-100" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -244,14 +251,21 @@ export default function PaymentHistory() {
 
                 {/* Actions */}
                 <div className="flex gap-3 pt-4 border-t">
-                  <Button variant="outline" className="flex-1">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={autoRenewMutation.isPending}
+                    onClick={() => autoRenewMutation.mutate({ subscriptionId: subscription.id, autoRenew: !subscription.autoRenew })}
+                  >
                     <RefreshCw className="w-4 h-4 mr-2" />
-                    Manage Auto-Renewal
+                    {autoRenewMutation.isPending ? "Updating…" : subscription.autoRenew ? "Turn Off Auto-Renewal" : "Turn On Auto-Renewal"}
                   </Button>
-                  <Button variant="outline" className="flex-1">
-                    <ArrowRight className="w-4 h-4 mr-2" />
-                    Upgrade Plan
-                  </Button>
+                  <Link href="/pricing" className="flex-1">
+                    <Button variant="outline" className="w-full">
+                      <ArrowRight className="w-4 h-4 mr-2" />
+                      Upgrade Plan
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
@@ -270,11 +284,7 @@ export default function PaymentHistory() {
                 <CardDescription>All your transactions and receipts</CardDescription>
               </CardHeader>
               <CardContent>
-                {loading ? (
-                  <div className="text-center py-8">
-                    <p className="text-slate-500">Loading payment history...</p>
-                  </div>
-                ) : payments.length === 0 ? (
+                {payments.length === 0 ? (
                   <div className="text-center py-8">
                     <CreditCard className="w-12 h-12 mx-auto text-slate-300 mb-3" />
                     <p className="text-slate-500">No payments yet</p>
@@ -312,14 +322,6 @@ export default function PaymentHistory() {
                             </p>
                             {getStatusBadge(payment.status)}
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-2"
-                          >
-                            <Download className="w-4 h-4" />
-                            Receipt
-                          </Button>
                         </div>
                       </motion.div>
                     ))}

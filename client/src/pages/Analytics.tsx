@@ -20,6 +20,8 @@ const SECTION_COLORS = {
   listening: "#f97316",
 };
 
+import TargetScoreSimulator from "@/components/TargetScoreSimulator";
+
 export default function Analytics() {
   const { data: analytics, isLoading } = trpc.analytics.myStats.useQuery();
   const { data: sessions } = trpc.sessions.myHistory.useQuery({ limit: 20 });
@@ -76,6 +78,8 @@ export default function Analytics() {
   return (
     <PTELayout title="Analytics">
       <div className="max-w-5xl space-y-6">
+        <TargetScoreSimulator />
+
         {/* Summary cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>

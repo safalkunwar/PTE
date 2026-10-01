@@ -10,7 +10,7 @@ import { Settings, Target, Bell, User, Save, Trophy, Clock } from "lucide-react"
 
 export default function Profile() {
   const { user } = useAuth();
-  const { data: analytics } = trpc.analytics.myStats.useQuery();
+  const { data: analytics, isLoading: analyticsLoading } = trpc.analytics.myStats.useQuery();
   const updateProfile = trpc.profile.update.useMutation({
     onSuccess: () => toast.success("Profile updated!"),
     onError: () => toast.error("Failed to update profile"),
@@ -26,6 +26,17 @@ export default function Profile() {
   const [notifications, setNotifications] = useState(true);
 
   const initials = user?.name?.split(" ").map(n => n[0]).join("").toUpperCase() || "U";
+
+  if (analyticsLoading) {
+    return (
+      <PTELayout title="Profile & Settings">
+        <div className="max-w-2xl space-y-6 animate-pulse" aria-busy="true" aria-label="Loading profile settings">
+          <div className="h-28 rounded-xl bg-muted" />
+          {[1, 2, 3, 4].map((item) => <div key={item} className="h-40 rounded-xl bg-muted" />)}
+        </div>
+      </PTELayout>
+    );
+  }
 
   const handleSave = () => {
     updateProfile.mutate({ targetScore, dailyGoalMinutes: dailyGoal, currentLevel: level, notificationsEnabled: notifications });

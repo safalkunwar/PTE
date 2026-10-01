@@ -1,5 +1,9 @@
 import { invokeLLM } from "./_core/llm";
 
+import { normalizeRawPercentageToPte } from "../shared/scoreCalibrationTable";
+import { PTE_SUBJECTIVE_CALIBRATION_ANCHORS } from "../shared/pteCalibrationAnchors";
+import { normalizeTaskType } from "../shared/taskTypeAliases";
+
 export interface ScoringResult {
   contentScore: number; // 0-1
   formScore: number; // 0-1
@@ -47,6 +51,17 @@ BAND 36-49 (Modest): Intermittent command. Frequent errors affecting clarity. Ba
 BAND 10-35 (Limited): Extremely limited command. Errors dominate. Very basic vocabulary. Task requirements largely unmet. Communication severely impaired.
 `;
 
+const PTE_CALIBRATION_ANCHORS = `
+PTE CALIBRATION ANCHORS — use these as score ceilings and floors, not as a reason to award a high score for fluency alone:
+- 10: no meaningful response, irrelevant/off-topic content, or a Pearson content/form gate failure; do not score other traits.
+- 30: isolated words, severely limited development, frequent errors, and communication that is often unclear.
+- 50: partially relevant response with basic vocabulary and noticeable errors, but the main meaning is usually recoverable.
+- 65: generally effective response with adequate development, a mix of simple and complex language, and some non-blocking errors.
+- 79: strong, fully relevant response with clear organization, effective language range, and only occasional inaccuracies.
+- 90: complete, precise, highly fluent response meeting every task requirement with near-native control.
+Never assign 79+ when a required content point, form rule, or task instruction is missing. Never assign above 10 when a Pearson zero-content or zero-form gate is triggered.
+`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORE NORMALIZATION (raw 0-100 → PTE 10-90)
 // Uses a non-linear curve that matches PTE's distribution:
@@ -54,11 +69,7 @@ BAND 10-35 (Limited): Extremely limited command. Errors dominate. Very basic voc
 // - Perfect raw = 90, zero raw = 10
 // ─────────────────────────────────────────────────────────────────────────────
 export function normalizeToPTE(rawScore: number): number {
-  const clamped = Math.max(0, Math.min(100, rawScore));
-  // Apply slight S-curve to match PTE distribution
-  // Raw 50 → PTE 50, Raw 75 → PTE 69, Raw 90 → PTE 82, Raw 100 → PTE 90
-  const normalized = 10 + (clamped / 100) * 80;
-  return Math.round(normalized);
+  return normalizeRawPercentageToPte(rawScore);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +138,10 @@ Scores: contentScore: 0.35, formScore: 0.7, languageScore: 0.40, spellingScore: 
   const systemPrompt = `You are an expert PTE Academic ${taskName} scoring engine, strictly aligned with the official Pearson PTE Academic score guide.
 
 ${PTE_BAND_DESCRIPTORS}
+
+${PTE_CALIBRATION_ANCHORS}
+
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ${fewShotExamples}
 
@@ -593,7 +608,8 @@ export function scoreObjectiveTask(params: {
   correctAnswer: string | string[];
   userAnswer: string | string[];
 }): { score: number; normalizedScore: number; feedback: string } {
-  const { taskType, correctAnswer, userAnswer } = params;
+  const { correctAnswer, userAnswer } = params;
+  const taskType = normalizeTaskType(params.taskType);
 
   // Write from Dictation: partial credit per correct word
   if (taskType === "write_from_dictation") {
@@ -626,8 +642,21 @@ export function scoreObjectiveTask(params: {
 
   // Reorder Paragraphs: partial credit for adjacent pairs in correct order
   if (taskType === "reorder_paragraphs") {
-    const correctOrder = Array.isArray(correctAnswer) ? correctAnswer : [correctAnswer];
-    const userOrder = Array.isArray(userAnswer) ? userAnswer : [userAnswer];
+    const toOrder = (value: string | string[]): string[] => {
+      if (Array.isArray(value)) return value.map(String).map(item => item.trim()).filter(Boolean);
+      const raw = value.trim();
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).map(item => item.trim()).filter(Boolean);
+        }
+      } catch {
+        // Legacy answer keys may be stored as a comma-separated sequence.
+      }
+      return raw.split(/[,|\n]+/).map(item => item.trim()).filter(Boolean);
+    };
+    const correctOrder = toOrder(correctAnswer);
+    const userOrder = toOrder(userAnswer);
     let correctPairs = 0;
     const totalPairs = Math.max(correctOrder.length - 1, 1);
     for (let i = 0; i < correctOrder.length - 1; i++) {
@@ -650,8 +679,23 @@ export function scoreObjectiveTask(params: {
 
   // Highlight Incorrect Words: partial credit (correct identifications minus false positives)
   if (taskType === "highlight_incorrect_words") {
-    const correctSet = new Set(Array.isArray(correctAnswer) ? correctAnswer : [correctAnswer]);
-    const userSet = new Set(Array.isArray(userAnswer) ? userAnswer : [userAnswer]);
+    const toWordSet = (value: string | string[]) => {
+      let values: unknown[] = Array.isArray(value) ? value : [value];
+      if (!Array.isArray(value)) {
+        try {
+          const parsed: unknown = JSON.parse(value);
+          if (Array.isArray(parsed)) values = parsed;
+        } catch {
+          // Legacy records may store one plain-text answer rather than JSON.
+        }
+      }
+      return new Set(values
+        .filter((item): item is string => typeof item === "string")
+        .map(item => item.trim().toLowerCase())
+        .filter(Boolean));
+    };
+    const correctSet = toWordSet(correctAnswer);
+    const userSet = toWordSet(userAnswer);
     const truePositives = Array.from(userSet).filter(w => correctSet.has(w)).length;
     const falsePositives = Array.from(userSet).filter(w => !correctSet.has(w)).length;
     const score = Math.max(0, ((truePositives - falsePositives) / Math.max(correctSet.size, 1)) * 100);
@@ -666,19 +710,76 @@ export function scoreObjectiveTask(params: {
     };
   }
 
-  // Multiple choice and other objective tasks: exact match
-  const correct = Array.isArray(correctAnswer) ? correctAnswer.sort() : [correctAnswer];
-  const user = Array.isArray(userAnswer) ? userAnswer.sort() : [userAnswer];
+  // Fill in the Blanks: partial credit per blank, with case-insensitive matching.
+  // Text responses are accepted as comma/newline-separated answers; dropdown and
+  // drag-and-drop responses arrive as arrays in the same blank order.
+  if (["fill_blanks_reading", "fill_blanks_rw", "fill_blanks_listening"].includes(taskType)) {
+    const toParts = (value: string | string[]) => {
+      let parts: unknown[];
+      if (Array.isArray(value)) {
+        parts = value;
+      } else {
+        const raw = value.trim();
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parts = parsed;
+          } else if (parsed && typeof parsed === "object") {
+            parts = Object.entries(parsed as Record<string, unknown>)
+              .sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }))
+              .map(([, answer]) => answer);
+          } else {
+            parts = raw.split(/[,\\n|]+/);
+          }
+        } catch {
+          parts = raw.split(/[,\\n|]+/);
+        }
+      }
+      return parts
+        .map(part => String(part).trim().toLowerCase().replace(/[^a-z0-9'’-]/g, ""))
+        .filter(Boolean);
+    };
+    const correctParts = toParts(correctAnswer);
+    const userParts = toParts(userAnswer);
+    const matched = correctParts.reduce((count, expected, index) => count + (userParts[index] === expected ? 1 : 0), 0);
+    const score = correctParts.length > 0 ? (matched / correctParts.length) * 100 : 0;
+    return {
+      score,
+      normalizedScore: normalizeToPTE(score),
+      feedback: matched === correctParts.length
+        ? `Excellent! All ${correctParts.length} blank(s) are correct.`
+        : `Partial credit: ${matched}/${correctParts.length} blank(s) correct. Review the context around each gap.`,
+    };
+  }
+
+  // Multiple choice and other objective tasks: exact match. Question-bank
+  // imports may persist selected IDs as a JSON array, while the learner UI
+  // submits an array of strings.
+  const toSelections = (value: string | string[]): string[] => {
+    if (Array.isArray(value)) return value.map(String).map(item => item.trim()).filter(Boolean);
+    const raw = value.trim();
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).map(item => item.trim()).filter(Boolean);
+      }
+    } catch {
+      // Plain-text single-answer keys are valid persisted values.
+    }
+    return raw ? [raw] : [];
+  };
+  const correct = toSelections(correctAnswer).sort();
+  const user = toSelections(userAnswer).sort();
   const isCorrect = JSON.stringify(correct) === JSON.stringify(user);
   const score = isCorrect ? 100 : 0;
 
   // Partial credit for multiple-choice-multiple
-  if (taskType === "multiple_choice_multiple" && Array.isArray(correctAnswer) && Array.isArray(userAnswer)) {
-    const correctSet = new Set(correctAnswer);
-    const userSet = new Set(userAnswer);
+  if (taskType === "multiple_choice_multiple") {
+    const correctSet = new Set(correct);
+    const userSet = new Set(user);
     const hits = Array.from(userSet).filter(a => correctSet.has(a)).length;
     const misses = Array.from(userSet).filter(a => !correctSet.has(a)).length;
-    const partialScore = Math.max(0, ((hits - misses) / correctAnswer.length) * 100);
+    const partialScore = Math.max(0, ((hits - misses) / Math.max(correct.length, 1)) * 100);
     return {
       score: partialScore,
       normalizedScore: normalizeToPTE(partialScore),

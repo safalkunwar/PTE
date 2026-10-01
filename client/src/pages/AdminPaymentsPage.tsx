@@ -107,8 +107,12 @@ export default function AdminPaymentsPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex items-center justify-center h-96">
-                <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+              <div className="space-y-3 animate-pulse" aria-busy="true" aria-label="Loading payment transactions">
+                {[1, 2, 3, 4, 5].map((row) => (
+                  <div key={row} className="grid grid-cols-6 gap-4 rounded-lg bg-gray-100 p-4">
+                    {[1, 2, 3, 4, 5, 6].map((cell) => <div key={cell} className="h-4 rounded bg-gray-200" />)}
+                  </div>
+                ))}
               </div>
             ) : filteredPayments.length === 0 ? (
               <div className="text-center py-12">

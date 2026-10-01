@@ -9,99 +9,25 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { scoreSpeakingTask, type SpeakingScoreResult } from "../ai/speakingAI";
-import { scoreWritingTask, type WritingScoreResult } from "../ai/writingAI";
-import { scoreReadingTask, type ReadingScoreResult } from "../ai/readingAI";
-import { scoreListeningTask, type ListeningScoreResult } from "../ai/listeningAI";
+import { scoreSpeakingTask } from "../ai/speakingAI";
+import { scoreWritingTask } from "../ai/writingAI";
+import { scoreReadingTask } from "../ai/readingAI";
+import { scoreListeningTask } from "../ai/listeningAI";
 import { getQuestionById, getResponseById, updateResponse } from "../db";
 import { transcribeAudio } from "../_core/voiceTranscription";
+import { hasRequiredQuestionContent, hasScoreableResponse } from "@shared/pteValidation";
+import { normalizeTaskType } from "@shared/taskTypeAliases";
+import { normalizeOptionValues, parseDelimitedAnswers, parseOrderedAnswerKey } from "../optionValueNormalization";
+import { getConfidenceMetadata } from "../aiConfidence";
+import { deterministicScoreFallback, withScoringTimeout } from "../aiScoreFallback";
+import { hasUsableSpeakingTranscription } from "../aiScoreEligibility";
 
-/**
- * Fall back to a deterministic neutral score if the AI engine exceeds the
- * timeout or throws, so users still receive a result instead of hanging.
- */
-const AI_SCORING_TIMEOUT_MS = 15_000;
-
-function withTimeout<T>(promise: Promise<T>, fallback: () => T, ms = AI_SCORING_TIMEOUT_MS): Promise<T> {
-  return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(fallback()), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        console.error("AI scoring failed, using deterministic fallback:", err);
-        resolve(fallback());
-      },
-    );
-  });
-}
-
-const TIMEOUT_FEEDBACK =
-  "AI scoring timed out. A deterministic baseline score has been returned. Submit again for a full analysis.";
-
-function fallbackSpeaking(taskType: string): SpeakingScoreResult {
-  return {
-    taskType,
-    overallScore: 50,
-    traits: {
-      pronunciation: { score: 3, maxScore: 5, feedback: TIMEOUT_FEEDBACK },
-      oralFluency: { score: 3, maxScore: 5, feedback: TIMEOUT_FEEDBACK },
-      content: { score: 1, maxScore: 3, feedback: TIMEOUT_FEEDBACK },
-    },
-    cefrLevel: "B1",
-    overallFeedback: TIMEOUT_FEEDBACK,
-    strengths: [],
-    improvements: [],
-  };
-}
-
-function fallbackWriting(taskType: string): WritingScoreResult {
-  const trait = { score: 1, maxScore: 2, feedback: TIMEOUT_FEEDBACK };
-  return {
-    taskType,
-    overallScore: 50,
-    rawScore: 5,
-    maxRawScore: 10,
-    traits: { content: trait, form: trait, grammar: trait, vocabulary: trait, spelling: trait },
-    wordCount: 0,
-    cefrLevel: "B1",
-    overallFeedback: TIMEOUT_FEEDBACK,
-    strengths: [],
-    improvements: [],
-  };
-}
-
-function fallbackReading(taskType: string, correctAnswers: string[]): ReadingScoreResult {
-  return {
-    taskType,
-    overallScore: 50,
-    rawScore: 0,
-    maxRawScore: Math.max(correctAnswers.length, 1),
-    correctAnswers,
-    userAnswers: [],
-    cefrLevel: "B1",
-    overallFeedback: TIMEOUT_FEEDBACK,
-    strengths: [],
-    improvements: [],
-    strategyTips: [],
-  };
-}
-
-function fallbackListening(taskType: string): ListeningScoreResult {
-  return {
-    taskType,
-    overallScore: 50,
-    rawScore: 0,
-    maxRawScore: 1,
-    cefrLevel: "B1",
-    overallFeedback: TIMEOUT_FEEDBACK,
-    strengths: [],
-    improvements: [],
-    strategyTips: [],
-  };
+async function scoreWithFallback<T>(taskType: string, scorer: () => Promise<T>): Promise<T> {
+  const result = await withScoringTimeout(
+    scorer(),
+    () => deterministicScoreFallback(taskType) as T,
+  );
+  return result.value;
 }
 
 export const aiScoringRouter = router({
@@ -115,6 +41,7 @@ export const aiScoringRouter = router({
       responseId: z.number(),
       audioUrl: z.string().optional(),
       transcription: z.string().optional(),
+      durationSeconds: z.number().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const response = await getResponseById(input.responseId);
@@ -123,6 +50,10 @@ export const aiScoringRouter = router({
       }
       const question = await getQuestionById(response.questionId);
       if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+      const questionCheck = hasRequiredQuestionContent(question);
+      if (!questionCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: questionCheck.reason });
+      }
 
       // Get transcription
       let transcription = input.transcription || response.transcription || "";
@@ -137,7 +68,16 @@ export const aiScoringRouter = router({
         }
       }
 
-      if (!transcription) {
+      const responseCheck = hasScoreableResponse(question, {
+        audioUrl: input.audioUrl || response.audioUrl,
+        transcription,
+        responseText: response.responseText,
+      });
+      if (!responseCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: responseCheck.reason });
+      }
+
+      if (!hasUsableSpeakingTranscription(transcription)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "No transcription available. Please provide audio or text.",
@@ -145,23 +85,29 @@ export const aiScoringRouter = router({
       }
 
       // Score using the section-specific engine
-      const result = await withTimeout(
-        scoreSpeakingTask({
-          taskType: question.taskType,
-          originalText: question.content || question.prompt || undefined,
-          imageDescription: question.content || undefined,
-          lectureTranscript: question.content || undefined,
-          question: question.prompt || undefined,
-          correctAnswer: question.correctAnswer || undefined,
-          transcription,
-        }),
-        () => fallbackSpeaking(question.taskType),
-      );
+      const result = await scoreWithFallback(question.taskType, () => scoreSpeakingTask({
+        taskType: question.taskType,
+        originalText: question.content || question.prompt || undefined,
+        imageDescription: question.content || undefined,
+        lectureTranscript: question.content || undefined,
+        question: question.prompt || undefined,
+        correctAnswer: question.correctAnswer || undefined,
+        transcription,
+        wpm: input.durationSeconds && transcription.trim()
+          ? (transcription.trim().split(/\s+/).filter(Boolean).length / input.durationSeconds) * 60
+          : undefined,
+      }));
+
+      // Normalize the speaking engine's overallScore to the response/UI
+      // contract so valid speaking results are never rendered as 0/90.
+      const normalizedScore = Number.isFinite(result.overallScore)
+        ? Math.max(10, Math.min(90, result.overallScore))
+        : 10;
 
       // Persist the enhanced score
       await updateResponse(input.responseId, {
-        normalizedScore: result.overallScore,
-        totalScore: result.overallScore,
+        normalizedScore,
+        totalScore: normalizedScore,
         pronunciationScore: result.traits.pronunciation ? result.traits.pronunciation.score / 5 : undefined,
         fluencyScore: result.traits.oralFluency ? result.traits.oralFluency.score / 5 : undefined,
         feedback: result.overallFeedback,
@@ -169,9 +115,10 @@ export const aiScoringRouter = router({
         improvements: result.improvements,
         pronunciationFeedback: result.traits.pronunciation?.feedback,
         fluencyFeedback: result.traits.oralFluency?.feedback,
+        ...getConfidenceMetadata(result),
       });
 
-      return result;
+      return { ...result, normalizedScore };
     }),
 
   /**
@@ -190,21 +137,26 @@ export const aiScoringRouter = router({
       }
       const question = await getQuestionById(response.questionId);
       if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+      const questionCheck = hasRequiredQuestionContent(question);
+      if (!questionCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: questionCheck.reason });
+      }
 
       const text = input.responseText || response.responseText || "";
+      const responseCheck = hasScoreableResponse(question, { responseText: text });
+      if (!responseCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: responseCheck.reason });
+      }
       if (!text.trim()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No response text provided." });
       }
 
-      const result = await withTimeout(
-        scoreWritingTask({
-          taskType: question.taskType,
-          sourceText: question.content || undefined,
-          prompt: question.prompt || undefined,
-          response: text,
-        }),
-        () => fallbackWriting(question.taskType),
-      );
+      const result = await scoreWithFallback(question.taskType, () => scoreWritingTask({
+        taskType: question.taskType,
+        sourceText: question.content || undefined,
+        prompt: question.prompt || undefined,
+        response: text,
+      }));
 
       // Persist enhanced score
       await updateResponse(input.responseId, {
@@ -217,6 +169,7 @@ export const aiScoringRouter = router({
         improvements: result.improvements,
         grammarErrors: result.grammarErrors || [],
         vocabularyFeedback: result.vocabularyFeedback || "",
+        ...getConfidenceMetadata(result),
       });
 
       return result;
@@ -243,6 +196,10 @@ export const aiScoringRouter = router({
       }
       const question = await getQuestionById(response.questionId);
       if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+      const questionCheck = hasRequiredQuestionContent(question);
+      if (!questionCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: questionCheck.reason });
+      }
 
       const userAnswers = input.selectedOptions || (response.selectedOptions as unknown as string[] | null) || [];
       const correctAnswerRaw = question.correctAnswer as string | null;
@@ -259,21 +216,26 @@ export const aiScoringRouter = router({
         options: optionsArr,
       }));
 
-      const result = await withTimeout(
-        scoreReadingTask({
-          taskType: question.taskType,
-          passage: question.content || question.prompt || "",
-          question: question.prompt || "",
-          options: optionsArr,
-          correctAnswer: correctAnswers.length === 1 ? correctAnswers[0] : correctAnswers,
-          userAnswer: userAnswers.length === 1 ? userAnswers[0] : userAnswers,
-          paragraphs: (question.options as unknown as Array<{ id: string; text: string }> | null) || undefined,
-          correctOrder: correctAnswers,
-          userOrder: input.orderedItems || userAnswers,
-          blanks,
-        }),
-        () => fallbackReading(question.taskType, correctAnswers),
-      );
+      const responseCheck = hasScoreableResponse(question, {
+        selectedOptions: userAnswers,
+        responseText: response.responseText,
+      });
+      if (!responseCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: responseCheck.reason });
+      }
+
+      const result = await scoreWithFallback(question.taskType, () => scoreReadingTask({
+        taskType: question.taskType,
+        passage: question.content || question.prompt || "",
+        question: question.prompt || "",
+        options: optionsArr,
+        correctAnswer: correctAnswers.length === 1 ? correctAnswers[0] : correctAnswers,
+        userAnswer: userAnswers.length === 1 ? userAnswers[0] : userAnswers,
+        paragraphs: (question.options as unknown as Array<{ id: string; text: string }> | null) || undefined,
+        correctOrder: correctAnswers,
+        userOrder: input.orderedItems || userAnswers,
+        blanks,
+      }));
 
       // Persist score
       await updateResponse(input.responseId, {
@@ -283,6 +245,7 @@ export const aiScoringRouter = router({
         feedback: result.overallFeedback,
         strengths: result.strengths,
         improvements: result.improvements,
+        ...getConfidenceMetadata(result),
       });
 
       return result;
@@ -309,36 +272,61 @@ export const aiScoringRouter = router({
       }
       const question = await getQuestionById(response.questionId);
       if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+      const questionCheck = hasRequiredQuestionContent(question);
+      if (!questionCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: questionCheck.reason });
+      }
 
       const responseText = input.responseText || response.responseText || "";
       const userAnswers = input.selectedOptions || (response.selectedOptions as unknown as string[] | null) || [];
       const correctAnswerRaw2 = question.correctAnswer as string | null;
-      const correctAnswers = correctAnswerRaw2
-        ? correctAnswerRaw2.split(",").map(s => s.trim()).filter(Boolean)
-        : [];
+      const canonicalTaskType = normalizeTaskType(question.taskType);
+      const correctAnswers = canonicalTaskType === "fill_blanks_listening"
+        ? parseDelimitedAnswers(correctAnswerRaw2)
+        : parseOrderedAnswerKey(correctAnswerRaw2);
       const optionsArr2 = (question.options as unknown as string[] | null) || [];
+      const isListeningSelectionTask = question.section === "listening" && [
+        "multiple_choice_single",
+        "multiple_choice_multiple",
+        "highlight_correct_summary",
+        "select_missing_word",
+      ].includes(canonicalTaskType);
+      const normalizedSelections = isListeningSelectionTask
+        ? normalizeOptionValues(question.options, question.correctAnswer as string | null, userAnswers)
+        : undefined;
+      const scoringCorrectAnswers = normalizedSelections?.correctAnswers ?? correctAnswers;
+      const scoringUserAnswers = normalizedSelections?.selectedOptions ?? userAnswers;
 
-      const blanks = input.filledBlanks?.map((b, i) => ({
-        position: b.position,
+      const blankAnswers = input.filledBlanks?.map(b => ({ position: b.position, word: b.word }))
+        ?? (canonicalTaskType === "fill_blanks_listening"
+          ? parseDelimitedAnswers(responseText || userAnswers).map((word, position) => ({ position, word }))
+          : []);
+      const blanks = blankAnswers.map((b, i) => ({
+        position: b.position ?? i,
         correctWord: correctAnswers[i] || "",
         userWord: b.word,
       }));
 
-      const result = await withTimeout(
-        scoreListeningTask({
-          taskType: question.taskType,
-          lectureTranscript: question.content || undefined,
-          transcript: question.content || undefined,
-          response: responseText,
-          question: question.prompt || undefined,
-          options: optionsArr2,
-          correctAnswer: correctAnswers.length === 1 ? correctAnswers[0] : correctAnswers,
-          userAnswer: userAnswers.length === 1 ? userAnswers[0] : userAnswers,
-          summaryOptions: optionsArr2,
-          blanks,
-        }),
-        () => fallbackListening(question.taskType),
-      );
+      const responseCheck = hasScoreableResponse(question, {
+        responseText,
+        selectedOptions: userAnswers,
+      });
+      if (!responseCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: responseCheck.reason });
+      }
+
+      const result = await scoreWithFallback(question.taskType, () => scoreListeningTask({
+        taskType: question.taskType,
+        lectureTranscript: question.content || undefined,
+        transcript: question.content || undefined,
+        response: responseText,
+        question: question.prompt || undefined,
+        options: optionsArr2,
+        correctAnswer: scoringCorrectAnswers.length === 1 ? scoringCorrectAnswers[0] : scoringCorrectAnswers,
+        userAnswer: scoringUserAnswers.length === 1 ? scoringUserAnswers[0] : scoringUserAnswers,
+        summaryOptions: optionsArr2,
+        blanks,
+      }));
 
       // Persist score
       await updateResponse(input.responseId, {
@@ -348,6 +336,7 @@ export const aiScoringRouter = router({
         feedback: result.overallFeedback,
         strengths: result.strengths,
         improvements: result.improvements,
+        ...getConfidenceMetadata(result),
       });
 
       return result;
@@ -382,6 +371,8 @@ export const aiScoringRouter = router({
         formScore: response.formScore,
         grammarErrors: response.grammarErrors,
         vocabularyFeedback: response.vocabularyFeedback,
+        scoreConfidence: response.scoreConfidence,
+        needsReview: response.needsReview,
         transcription: response.transcription,
       };
     }),

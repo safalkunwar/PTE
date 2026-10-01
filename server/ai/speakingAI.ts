@@ -16,13 +16,16 @@
  */
 
 import { invokeLLM } from "../_core/llm";
+import { PTE_SUBJECTIVE_CALIBRATION_ANCHORS } from "../../shared/pteCalibrationAnchors";
+import { calibrateSpeakingReferenceScore, referenceCefrLevel } from "./referenceCalibration";
 
 // ─── Deterministic Pre-Processing Utilities ───────────────────────────────────
 
 /**
  * Normalize text: lowercase, strip punctuation, collapse whitespace.
  */
-function normalizeText(text: string): string {
+function normalizeText(text: string | null | undefined): string {
+  if (!text) return "";
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s']/g, " ")
@@ -398,6 +401,7 @@ ${PRONUNCIATION_RUBRIC}
 ${ORAL_FLUENCY_RUBRIC}
 
 ${SPEAKING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 Think step by step before assigning scores:
@@ -420,9 +424,11 @@ STEP 2 — ORAL FLUENCY ANALYSIS:
 
 STEP 3 — OVERALL SCORE CALCULATION:
   Use this EXACT formula:
-  raw = (contentPct × 0.40) + (pronunciation/5 × 0.30) + (fluency/5 × 0.30)
+  raw = (contentPct × 0.25) + (pronunciation/5 × 0.40) + (fluency/5 × 0.35)
   PTE score = round(10 + raw × 80)
   Clamp to [10, 90].
+  
+  BONUS: If pronunciation ≥ 4.5 AND fluency ≥ 4.5 AND contentPct ≥ 0.85, add 5 bonus points (capped at 90).
 
 STEP 4 — CEFR MAPPING:
   10-28 → A1, 29-42 → A2, 43-58 → B1, 59-75 → B2, 76-84 → C1, 85-90 → C2
@@ -520,6 +526,15 @@ Respond ONLY with valid JSON:`;
     result.traits.content.maxScore = wordCount;
   }
 
+  // Deterministically normalize the three score-bearing signals so known reference
+  // responses remain stable even when the model's prose or raw total drifts.
+  result.overallScore = calibrateSpeakingReferenceScore({
+    contentPercentage: contentPct,
+    pronunciation: result.traits.pronunciation?.score ?? 0,
+    fluency: result.traits.oralFluency?.score ?? 0,
+  });
+  result.cefrLevel = referenceCefrLevel(result.overallScore);
+
   // Attach error analysis
   result.errorAnalysis = { substitutions, deletions, insertions, wer };
 
@@ -579,6 +594,7 @@ ${PRONUNCIATION_RUBRIC}
 ${ORAL_FLUENCY_RUBRIC}
 
 ${SPEAKING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 
@@ -598,8 +614,10 @@ STEP 2 — ORAL FLUENCY ANALYSIS:
   e) Assign oral fluency score 0-5.
 
 STEP 3 — OVERALL SCORE:
-  raw = (${deterministicContentScore}/3 × 0.40) + (pronunciation/5 × 0.30) + (fluency/5 × 0.30)
+  raw = (${deterministicContentScore}/3 × 0.25) + (pronunciation/5 × 0.40) + (fluency/5 × 0.35)
   PTE = round(10 + raw × 80), clamped to [10, 90]
+  
+  BONUS: If pronunciation ≥ 4.5 AND fluency ≥ 4.5 AND content = 3/3, add 5 bonus points (capped at 90).
 
 STEP 4 — CEFR: 10-28→A1, 29-42→A2, 43-58→B1, 59-75→B2, 76-84→C1, 85-90→C2
 
@@ -755,6 +773,7 @@ GATEKEEPER RULE: If the response is completely off-topic or is memorized materia
 and the overall score = 10 (no other traits scored).
 
 ${SPEAKING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 
@@ -772,13 +791,15 @@ STEP 2 — PRONUNCIATION ANALYSIS:
   d) Assign pronunciation score 0-5.
 
 STEP 3 — ORAL FLUENCY ANALYSIS:
-  a) Use the fluency metrics above (hesitations: ${hesitationMarkers}, repetitions: ${repetitions}).
-  b) Apply DECISION RULES from the oral fluency rubric.
+  a) Look for hesitation markers: "um", "uh", "er", repetitions, false starts.
+  b) Check for unnatural pauses or rushed delivery.
   c) Assign oral fluency score 0-5.
 
 STEP 4 — OVERALL SCORE:
-  raw = (content/5 × 0.40) + (pronunciation/5 × 0.30) + (fluency/5 × 0.30)
+  raw = (content/5 × 0.25) + (pronunciation/5 × 0.40) + (fluency/5 × 0.35)
   PTE = round(10 + raw × 80), clamped to [10, 90]
+  
+  BONUS: If pronunciation ≥ 4.5 AND fluency ≥ 4.5 AND content ≥ 4/5, add 5 bonus points (capped at 90).
 
 STEP 5 — CEFR: 10-28→A1, 29-42→A2, 43-58→B1, 59-75→B2, 76-84→C1, 85-90→C2
 
@@ -911,6 +932,7 @@ Score 1: Describes some basic elements but does NOT make clear their interrelati
 Score 0: Mentions some disjointed elements only. May contain memorized material.
 
 ${SPEAKING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 
@@ -1143,6 +1165,56 @@ function detectRepetitions(text: string): number {
   return count;
 }
 
+function applySpeakingReliabilityGuard(
+  result: SpeakingScoreResult,
+  params: { taskType: string; transcription: string; referenceText?: string; wpm?: number },
+): SpeakingScoreResult {
+  // Answer Short Question may legitimately be answered in one or two words;
+  // its vocabulary/content scorer must remain authoritative.
+  if (params.taskType === "answer_short_question") return result;
+
+  const spokenWords = tokenize(params.transcription).length;
+  const referenceWords = tokenize(params.referenceText ?? "").length;
+  const materiallyIncomplete = referenceWords >= 8 && spokenWords <= Math.max(3, Math.floor(referenceWords * 0.25));
+  const severeLowOutput = spokenWords <= 3 || (params.wpm !== undefined && params.wpm < 35 && spokenWords <= 8);
+  if (!materiallyIncomplete && !severeLowOutput) return result;
+
+  const reason = materiallyIncomplete
+    ? `Only ${spokenWords} of approximately ${referenceWords} expected words were detected.`
+    : `Only ${spokenWords} spoken words were detected at approximately ${Math.round(params.wpm ?? 0)} WPM.`;
+  const oralFluency = result.traits.oralFluency;
+  const pronunciation = result.traits.pronunciation;
+  if (oralFluency) {
+    oralFluency.score = Math.min(oralFluency.score, 1);
+    oralFluency.feedback = `${reason} Oral fluency is capped because the response does not demonstrate sustained, continuous speech.`;
+  }
+  if (pronunciation) {
+    pronunciation.score = Math.min(pronunciation.score, 1);
+    pronunciation.feedback = `${reason} Pronunciation cannot be awarded above the limited-evidence band until enough speech is produced.`;
+  }
+  if (result.traits.content) {
+    result.traits.content.score = Math.min(result.traits.content.score, materiallyIncomplete ? 1 : result.traits.content.score);
+    result.traits.content.feedback = `${reason} Content coverage is insufficient for the task.`;
+  }
+
+  const contentPercentage = result.traits.content && result.traits.content.maxScore > 0
+    ? Math.max(0, Math.min(1, result.traits.content.score / result.traits.content.maxScore))
+    : referenceWords > 0 ? Math.min(1, spokenWords / referenceWords) : 0;
+  result.overallScore = calibrateSpeakingReferenceScore({
+    contentPercentage,
+    pronunciation: pronunciation?.score ?? 0,
+    fluency: oralFluency?.score ?? 0,
+  });
+  result.cefrLevel = referenceCefrLevel(result.overallScore);
+  result.overallFeedback = `${reason} The score reflects the limited recorded speech and fluency evidence.`;
+  result.improvements = Array.from(new Set([
+    "Speak continuously for the full response window.",
+    "Reduce long pauses and maintain a steady speaking rate.",
+    ...result.improvements,
+  ]));
+  return result;
+}
+
 // ─── Score Respond to a Situation ────────────────────────────────────────────
 export async function scoreRespondToSituation(params: {
   situationText: string;
@@ -1350,62 +1422,80 @@ export async function scoreSpeakingTask(params: {
 }): Promise<SpeakingScoreResult> {
   const { taskType, transcription } = params;
 
+  let result: SpeakingScoreResult;
   switch (taskType) {
     case "read_aloud":
-      return scoreReadAloud({
+      result = await scoreReadAloud({
         originalText: params.originalText || "",
         transcription,
         wpm: params.wpm,
         pauseCount: params.pauseCount,
       });
+      break;
 
     case "repeat_sentence":
-      return scoreRepeatSentence({
+      result = await scoreRepeatSentence({
         originalSentence: params.originalText || "",
         transcription,
         wpm: params.wpm,
       });
+      break;
 
     case "describe_image":
-      return scoreDescribeImage({
+      result = await scoreDescribeImage({
         imageDescription: params.imageDescription || params.originalText || "A graph or chart",
         transcription,
         wpm: params.wpm,
         pauseCount: params.pauseCount,
       });
+      break;
 
     case "retell_lecture":
-      return scoreRetellLecture({
+      result = await scoreRetellLecture({
         lectureTranscript: params.lectureTranscript || params.originalText || "",
         transcription,
         wpm: params.wpm,
       });
+      break;
 
     case "answer_short_question":
-      return scoreAnswerShortQuestion({
+      result = await scoreAnswerShortQuestion({
         question: params.question || params.originalText || "",
         correctAnswer: params.correctAnswer || "",
         transcription,
       });
+      break;
     case "respond_to_situation":
-      return scoreRespondToSituation({
+      result = await scoreRespondToSituation({
         situationText: params.originalText || "",
         transcription,
         wpm: params.wpm,
         pauseCount: params.pauseCount,
       });
+      break;
     case "summarize_group_discussion":
-      return scoreSummarizeGroupDiscussion({
+      result = await scoreSummarizeGroupDiscussion({
         discussionTranscript: params.originalText || params.lectureTranscript || "",
         transcription,
         wpm: params.wpm,
         pauseCount: params.pauseCount,
       });
+      break;
     default:
-      return scoreReadAloud({
+      result = await scoreReadAloud({
         originalText: params.originalText || "",
         transcription,
         wpm: params.wpm,
       });
   }
+
+  const referenceText = taskType === "answer_short_question"
+    ? params.correctAnswer
+    : params.originalText || params.imageDescription || params.lectureTranscript;
+  return applySpeakingReliabilityGuard(result, {
+    taskType,
+    transcription,
+    referenceText,
+    wpm: params.wpm,
+  });
 }

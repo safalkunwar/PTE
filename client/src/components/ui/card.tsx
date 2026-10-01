@@ -2,12 +2,14 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+export const cardBaseClasses = "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md";
+
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        cardBaseClasses,
         className
       )}
       {...props}

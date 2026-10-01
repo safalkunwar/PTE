@@ -1,312 +1,293 @@
 import {
-  boolean,
-  doublePrecision,
-  integer,
-  json,
-  pgEnum,
-  pgTable,
-  serial,
+  int,
+  mysqlEnum,
+  mysqlTable,
   text,
   timestamp,
   varchar,
-} from "drizzle-orm/pg-core";
+  float,
+  boolean,
+  json,
+} from "drizzle-orm/mysql-core";
 
-export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
-export const currentLevelEnum = pgEnum("current_level", [
-  "beginner",
-  "intermediate",
-  "advanced",
-]);
-export const sectionEnum = pgEnum("section", [
-  "speaking",
-  "writing",
-  "reading",
-  "listening",
-]);
-export const difficultyEnum = pgEnum("difficulty", ["easy", "medium", "hard"]);
-export const sessionTypeEnum = pgEnum("session_type", [
-  "mock_test",
-  "section_practice",
-  "diagnostic",
-  "revision",
-  "beginner",
-]);
-export const sessionSectionEnum = pgEnum("session_section", [
-  "speaking",
-  "writing",
-  "reading",
-  "listening",
-  "full",
-]);
-export const sessionModeEnum = pgEnum("session_mode", [
-  "beginner",
-  "exam",
-  "diagnostic",
-  "revision",
-]);
-export const sessionStatusEnum = pgEnum("session_status", [
-  "in_progress",
-  "completed",
-  "abandoned",
-]);
-export const srsStateEnum = pgEnum("srs_state", [
-  "new",
-  "learning",
-  "review",
-  "relearning",
-]);
-export const planIntervalEnum = pgEnum("plan_interval", ["monthly", "yearly"]);
-export const subscriptionStatusEnum = pgEnum("subscription_status", [
-  "active",
-  "inactive",
-  "canceled",
-  "expired",
-]);
-export const paymentGatewayEnum = pgEnum("payment_gateway", ["esewa", "khalti"]);
-export const paymentStatusEnum = pgEnum("payment_status", [
-  "pending",
-  "completed",
-  "failed",
-  "refunded",
-]);
-
-export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  openId: varchar("openId", { length: 128 }).notNull().unique(),
+export const users = mysqlTable("users", {
+  id: int("id").autoincrement().primaryKey(),
+  openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: userRoleEnum("role").default("user").notNull(),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(),
-  targetScore: integer("targetScore").default(65),
-  currentLevel: currentLevelEnum("currentLevel").default("intermediate"),
-  dailyGoalMinutes: integer("dailyGoalMinutes").default(30),
+  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  targetScore: int("targetScore").default(65),
+  currentLevel: mysqlEnum("currentLevel", ["beginner", "intermediate", "advanced"]).default("intermediate"),
+  dailyGoalMinutes: int("dailyGoalMinutes").default(30),
   notificationsEnabled: boolean("notificationsEnabled").default(true),
+  isBanned: boolean("isBanned").default(false).notNull(),
+  banReason: text("banReason"),
+  bannedAt: timestamp("bannedAt"),
 });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-export const questions = pgTable("questions", {
-  id: serial("id").primaryKey(),
-  section: sectionEnum("section").notNull(),
-  taskType: varchar("taskType", { length: 64 }).notNull(),
-  difficulty: difficultyEnum("difficulty").default("medium").notNull(),
+// Question bank
+export const questions = mysqlTable("questions", {
+  id: int("id").autoincrement().primaryKey(),
+  section: mysqlEnum("section", ["speaking", "writing", "reading", "listening"]).notNull(),
+  taskType: varchar("taskType", { length: 64 }).notNull(), // read_aloud, repeat_sentence, describe_image, retell_lecture, answer_short_question, summarize_group_discussion, respond_to_situation, summarize_written_text, write_essay, multiple_choice_single, multiple_choice_multiple, reorder_paragraphs, fill_blanks_reading, fill_blanks_rw, summarize_spoken_text, fill_blanks_listening, highlight_correct_summary, select_missing_word, highlight_incorrect_words, write_from_dictation
+  difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
-  prompt: text("prompt"),
-  content: text("content"),
-  audioUrl: text("audioUrl"),
-  imageUrl: text("imageUrl"),
-  options: json("options"),
-  correctAnswer: text("correctAnswer"),
-  modelAnswer: text("modelAnswer"),
-  wordLimit: integer("wordLimit"),
-  timeLimit: integer("timeLimit"),
-  preparationTime: integer("preparationTime"),
-  tags: json("tags"),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  prompt: text("prompt"), // instruction text
+  content: text("content"), // main content (passage, image description, etc.)
+  audioUrl: text("audioUrl"), // for listening tasks
+  imageUrl: text("imageUrl"), // for describe image tasks
+  options: json("options"), // for MCQ tasks: [{id, text, correct}]
+  correctAnswer: text("correctAnswer"), // for objective tasks
+  modelAnswer: text("modelAnswer"), // for subjective tasks
+  wordLimit: int("wordLimit"), // for writing tasks
+  timeLimit: int("timeLimit"), // seconds allowed
+  preparationTime: int("preparationTime"), // seconds to prepare before speaking
+  tags: json("tags"), // topic tags
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type Question = typeof questions.$inferSelect;
 
-export const practiceSessions = pgTable("practice_sessions", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  sessionType: sessionTypeEnum("sessionType").notNull(),
-  section: sessionSectionEnum("section").notNull(),
-  mode: sessionModeEnum("mode").default("exam").notNull(),
-  status: sessionStatusEnum("status").default("in_progress").notNull(),
-  startedAt: timestamp("startedAt", { withTimezone: true }).defaultNow().notNull(),
-  completedAt: timestamp("completedAt", { withTimezone: true }),
-  totalQuestions: integer("totalQuestions").default(0),
-  answeredQuestions: integer("answeredQuestions").default(0),
-  overallScore: doublePrecision("overallScore"),
-  speakingScore: doublePrecision("speakingScore"),
-  writingScore: doublePrecision("writingScore"),
-  readingScore: doublePrecision("readingScore"),
-  listeningScore: doublePrecision("listeningScore"),
-  grammarScore: doublePrecision("grammarScore"),
-  oralFluencyScore: doublePrecision("oralFluencyScore"),
-  pronunciationScore: doublePrecision("pronunciationScore"),
-  spellingScore: doublePrecision("spellingScore"),
-  vocabularyScore: doublePrecision("vocabularyScore"),
-  writtenDiscourseScore: doublePrecision("writtenDiscourseScore"),
-  weakSkills: json("weakSkills"),
+// Practice sessions
+export const practiceSessions = mysqlTable("practice_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  sessionType: mysqlEnum("sessionType", ["mock_test", "section_practice", "diagnostic", "revision", "beginner"]).notNull(),
+  section: mysqlEnum("section", ["speaking", "writing", "reading", "listening", "full"]).notNull(),
+  mode: mysqlEnum("mode", ["beginner", "exam", "diagnostic", "revision"]).default("exam").notNull(),
+  status: mysqlEnum("status", ["in_progress", "paused", "completed", "abandoned"]).default("in_progress").notNull(),
+  pausedAt: timestamp("pausedAt"),
+  pausedIndex: int("pausedIndex").default(0),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  totalQuestions: int("totalQuestions").default(0),
+  answeredQuestions: int("answeredQuestions").default(0),
+  questionPlan: json("questionPlan"), // ordered [{ questionId, taskType, section }]
+  // Overall scores (10-90 scale)
+  overallScore: float("overallScore"),
+  speakingScore: float("speakingScore"),
+  writingScore: float("writingScore"),
+  readingScore: float("readingScore"),
+  listeningScore: float("listeningScore"),
+  // Enabling skills
+  grammarScore: float("grammarScore"),
+  oralFluencyScore: float("oralFluencyScore"),
+  pronunciationScore: float("pronunciationScore"),
+  spellingScore: float("spellingScore"),
+  vocabularyScore: float("vocabularyScore"),
+  writtenDiscourseScore: float("writtenDiscourseScore"),
+  // Diagnostic data
+  weakSkills: json("weakSkills"), // array of skill names
   strongSkills: json("strongSkills"),
   actionPlan: text("actionPlan"),
 });
 
 export type PracticeSession = typeof practiceSessions.$inferSelect;
 
-export const userResponses = pgTable("userResponses", {
-  id: serial("id").primaryKey(),
-  sessionId: integer("sessionId")
-    .notNull()
-    .references(() => practiceSessions.id),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  questionId: integer("questionId")
-    .notNull()
-    .references(() => questions.id),
-  responseText: text("responseText"),
-  audioUrl: text("audioUrl"),
-  transcription: text("transcription"),
-  selectedOptions: json("selectedOptions"),
-  timeTaken: integer("timeTaken"),
-  submittedAt: timestamp("submittedAt", { withTimezone: true }).defaultNow().notNull(),
-  contentScore: doublePrecision("contentScore"),
-  formScore: doublePrecision("formScore"),
-  languageScore: doublePrecision("languageScore"),
-  pronunciationScore: doublePrecision("pronunciationScore"),
-  fluencyScore: doublePrecision("fluencyScore"),
-  totalScore: doublePrecision("totalScore"),
-  normalizedScore: doublePrecision("normalizedScore"),
-  feedback: text("feedback"),
+// User responses to individual questions
+export const userResponses = mysqlTable("userResponses", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => practiceSessions.id),
+  userId: int("userId").notNull().references(() => users.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  responseText: text("responseText"), // text answer
+  audioUrl: text("audioUrl"), // for speaking tasks
+  transcription: text("transcription"), // transcribed speech
+  selectedOptions: json("selectedOptions"), // for MCQ
+  timeTaken: int("timeTaken"), // seconds
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  // Scores
+  contentScore: float("contentScore"), // 0-1 normalized
+  formScore: float("formScore"),
+  languageScore: float("languageScore"),
+  pronunciationScore: float("pronunciationScore"),
+  fluencyScore: float("fluencyScore"),
+  totalScore: float("totalScore"), // 0-100 raw
+  normalizedScore: float("normalizedScore"), // 10-90 scale
+  scoreConfidence: float("scoreConfidence"), // 0-1 AI confidence
+  needsReview: boolean("needsReview").default(false).notNull(), // low-confidence or anomalous response
+  // Feedback
+  feedback: text("feedback"), // detailed AI feedback
   strengths: json("strengths"),
   improvements: json("improvements"),
   grammarErrors: json("grammarErrors"),
   vocabularyFeedback: text("vocabularyFeedback"),
   pronunciationFeedback: text("pronunciationFeedback"),
   fluencyFeedback: text("fluencyFeedback"),
-  isCorrect: boolean("isCorrect"),
+  isCorrect: boolean("isCorrect"), // for objective tasks
 });
 
 export type UserResponse = typeof userResponses.$inferSelect;
 
-export const practiceTargets = pgTable("practiceTargets", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  targetDate: timestamp("targetDate", { withTimezone: true }).notNull(),
-  targetMinutes: integer("targetMinutes").default(30),
-  focusSkills: json("focusSkills"),
-  recommendedTasks: json("recommendedTasks"),
-  completedMinutes: integer("completedMinutes").default(0),
+// Daily practice targets
+export const practiceTargets = mysqlTable("practiceTargets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  targetDate: timestamp("targetDate").notNull(),
+  targetMinutes: int("targetMinutes").default(30),
+  focusSkills: json("focusSkills"), // skills to focus on
+  recommendedTasks: json("recommendedTasks"), // task types to practice
+  completedMinutes: int("completedMinutes").default(0),
   isCompleted: boolean("isCompleted").default(false),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const srsCards = pgTable("srs_cards", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  questionId: integer("questionId")
-    .notNull()
-    .references(() => questions.id),
-  easeFactor: doublePrecision("easeFactor").default(2.5).notNull(),
-  interval: integer("interval").default(1).notNull(),
-  repetitions: integer("repetitions").default(0).notNull(),
-  lapses: integer("lapses").default(0).notNull(),
-  dueDate: timestamp("dueDate", { withTimezone: true }).notNull(),
-  lastReviewedAt: timestamp("lastReviewedAt", { withTimezone: true }),
-  totalReviews: integer("totalReviews").default(0).notNull(),
-  correctReviews: integer("correctReviews").default(0).notNull(),
-  state: srsStateEnum("state").default("new").notNull(),
-  sourceResponseId: integer("sourceResponseId").references(() => userResponses.id),
-  lastScore: doublePrecision("lastScore"),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+// Spaced Repetition Cards (SM-2 algorithm)
+export const srsCards = mysqlTable("srs_cards", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  // SM-2 core fields
+  easeFactor: float("easeFactor").default(2.5).notNull(), // starts at 2.5, min 1.3
+  interval: int("interval").default(1).notNull(), // days until next review
+  repetitions: int("repetitions").default(0).notNull(), // consecutive correct reviews
+  lapses: int("lapses").default(0).notNull(), // times forgotten (reset to 0)
+  // Scheduling
+  dueDate: timestamp("dueDate").notNull(), // next review date
+  lastReviewedAt: timestamp("lastReviewedAt"),
+  // Stats
+  totalReviews: int("totalReviews").default(0).notNull(),
+  correctReviews: int("correctReviews").default(0).notNull(),
+  // Card state
+  state: mysqlEnum("state", ["new", "learning", "review", "relearning"]).default("new").notNull(),
+  // Source of the card (from a failed response)
+  sourceResponseId: int("sourceResponseId").references(() => userResponses.id),
+  lastScore: float("lastScore"), // last normalized score that triggered this card
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type SrsCard = typeof srsCards.$inferSelect;
 export type InsertSrsCard = typeof srsCards.$inferInsert;
 
-export const srsReviewLogs = pgTable("srs_review_logs", {
-  id: serial("id").primaryKey(),
-  cardId: integer("cardId")
-    .notNull()
-    .references(() => srsCards.id),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  questionId: integer("questionId")
-    .notNull()
-    .references(() => questions.id),
-  rating: integer("rating").notNull(),
-  prevEaseFactor: doublePrecision("prevEaseFactor").notNull(),
-  prevInterval: integer("prevInterval").notNull(),
-  prevRepetitions: integer("prevRepetitions").notNull(),
-  newEaseFactor: doublePrecision("newEaseFactor").notNull(),
-  newInterval: integer("newInterval").notNull(),
-  newRepetitions: integer("newRepetitions").notNull(),
+// SRS Review Logs — full history of every review
+export const srsReviewLogs = mysqlTable("srs_review_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  cardId: int("cardId").notNull().references(() => srsCards.id),
+  userId: int("userId").notNull().references(() => users.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  // What the user rated (1=Again, 2=Hard, 3=Good, 4=Easy, 5=Perfect)
+  rating: int("rating").notNull(),
+  // SM-2 values BEFORE this review
+  prevEaseFactor: float("prevEaseFactor").notNull(),
+  prevInterval: int("prevInterval").notNull(),
+  prevRepetitions: int("prevRepetitions").notNull(),
+  // SM-2 values AFTER this review
+  newEaseFactor: float("newEaseFactor").notNull(),
+  newInterval: int("newInterval").notNull(),
+  newRepetitions: int("newRepetitions").notNull(),
+  // Response data
   responseText: text("responseText"),
-  normalizedScore: doublePrecision("normalizedScore"),
-  reviewedAt: timestamp("reviewedAt", { withTimezone: true }).defaultNow().notNull(),
+  normalizedScore: float("normalizedScore"),
+  reviewedAt: timestamp("reviewedAt").defaultNow().notNull(),
 });
 
 export type SrsReviewLog = typeof srsReviewLogs.$inferSelect;
 
-export const subscriptionPlans = pgTable("subscription_plans", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 64 }).notNull(),
-  price: integer("price").notNull(),
-  interval: planIntervalEnum("interval").notNull(),
-  features: json("features").notNull(),
-  maxSessions: integer("maxSessions"),
-  storageGB: integer("storageGB"),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+// Subscription plans
+export const subscriptionPlans = mysqlTable("subscription_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull(), // Free, Pro, Premium
+  price: int("price").notNull(), // in NPR (Nepali Rupees)
+  interval: mysqlEnum("interval", ["monthly", "yearly"]).notNull(),
+  features: json("features").notNull(), // array of feature strings
+  maxSessions: int("maxSessions"), // null for unlimited
+  storageGB: int("storageGB"), // null for unlimited
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 
-export const subscriptions = pgTable("subscriptions", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  planId: integer("planId")
-    .notNull()
-    .references(() => subscriptionPlans.id),
-  status: subscriptionStatusEnum("status").default("active").notNull(),
-  startDate: timestamp("startDate", { withTimezone: true }).defaultNow().notNull(),
-  endDate: timestamp("endDate", { withTimezone: true }),
-  renewalDate: timestamp("renewalDate", { withTimezone: true }),
+// User subscriptions
+export const subscriptions = mysqlTable("subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  planId: int("planId").notNull().references(() => subscriptionPlans.id),
+  status: mysqlEnum("status", ["active", "inactive", "canceled", "expired"]).default("active").notNull(),
+  startDate: timestamp("startDate").defaultNow().notNull(),
+  endDate: timestamp("endDate"),
+  renewalDate: timestamp("renewalDate"),
   autoRenew: boolean("autoRenew").default(true),
-  canceledAt: timestamp("canceledAt", { withTimezone: true }),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+  canceledAt: timestamp("canceledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = typeof subscriptions.$inferInsert;
 
-export const payments = pgTable("payments", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  subscriptionId: integer("subscriptionId").references(() => subscriptions.id),
-  gateway: paymentGatewayEnum("gateway").notNull(),
-  amount: integer("amount").notNull(),
+// Payments (eSewa and Khalti)
+export const payments = mysqlTable("payments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  subscriptionId: int("subscriptionId").references(() => subscriptions.id),
+  gateway: mysqlEnum("gateway", ["esewa", "khalti"]).notNull(),
+  amount: int("amount").notNull(), // in NPR
   currency: varchar("currency", { length: 3 }).default("NPR").notNull(),
-  status: paymentStatusEnum("status").default("pending").notNull(),
-  transactionId: varchar("transactionId", { length: 255 }),
-  referenceId: varchar("referenceId", { length: 255 }),
+  status: mysqlEnum("status", ["pending", "completed", "failed", "refunded"]).default("pending").notNull(),
+  transactionId: varchar("transactionId", { length: 255 }), // eSewa or Khalti transaction ID
+  referenceId: varchar("referenceId", { length: 255 }).unique(), // unique reference for payment and renewal idempotency
   description: text("description"),
-  metadata: json("metadata"),
-  completedAt: timestamp("completedAt", { withTimezone: true }),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+  metadata: json("metadata"), // additional data from gateway
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = typeof payments.$inferInsert;
 
-export const milestones = pgTable("milestones", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId")
-    .notNull()
-    .references(() => users.id),
-  milestoneType: varchar("milestoneType", { length: 64 }).notNull(),
+// Platform-managed scheduled jobs (Heartbeat task registry)
+export const scheduledJobs = mysqlTable("scheduled_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull().unique(),
+  taskUid: varchar("taskUid", { length: 65 }).notNull().unique(),
+  enabled: boolean("enabled").default(true).notNull(),
+  lastRunAt: timestamp("lastRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ScheduledJob = typeof scheduledJobs.$inferSelect;
+export type InsertScheduledJob = typeof scheduledJobs.$inferInsert;
+
+// Score milestones and notifications
+export const milestones = mysqlTable("milestones", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  milestoneType: varchar("milestoneType", { length: 64 }).notNull(), // score_reached, streak, improvement
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
-  achievedAt: timestamp("achievedAt", { withTimezone: true }).defaultNow().notNull(),
+  achievedAt: timestamp("achievedAt").defaultNow().notNull(),
   isNotified: boolean("isNotified").default(false),
 });
+
+
+// Attempt History — auto-saved attempts for each question
+export const attemptHistory = mysqlTable("attempt_history", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  sessionId: int("sessionId").notNull().references(() => practiceSessions.id),
+  questionId: int("questionId").notNull().references(() => questions.id),
+  taskType: varchar("taskType", { length: 64 }).notNull(),
+  section: mysqlEnum("section", ["speaking", "writing", "reading", "listening"]).notNull(),
+  score: int("score"), // final score (0-90)
+  maxScore: int("maxScore").default(90),
+  audioUrl: text("audioUrl"), // for speaking tasks
+  transcription: text("transcription"), // speech-to-text output
+  responseText: text("responseText"), // user's written or spoken response
+  feedback: text("feedback"), // AI feedback
+  traits: json("traits"), // pronunciation, fluency, content scores
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AttemptHistory = typeof attemptHistory.$inferSelect;
+export type InsertAttemptHistory = typeof attemptHistory.$inferInsert;

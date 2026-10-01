@@ -106,7 +106,7 @@ export default function Home() {
             <div className="flex items-center gap-3">
               {isAuthenticated ? (
                 <Link href="/dashboard">
-                  <button className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                  <button className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
                     <span>Go to Dashboard</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>

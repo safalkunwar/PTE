@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { getDedicatedPracticeModeRoute } from "@/lib/practiceModeRouting";
 import {
   GraduationCap, Zap, Search, RotateCcw, ArrowRight, CheckCircle,
   Clock, Target, BookOpen, Brain, TrendingUp, Info
@@ -143,14 +144,24 @@ export default function LearningModes() {
   const createSession = trpc.sessions.create.useMutation();
 
   const startMode = async (mode: typeof modes[0]) => {
+    const dedicatedRoute = getDedicatedPracticeModeRoute(mode.id as "beginner" | "exam" | "diagnostic" | "revision");
+    if (dedicatedRoute) {
+      window.location.href = dedicatedRoute;
+      return;
+    }
     try {
       const session = await createSession.mutateAsync({
         sessionType: mode.sessionType as any,
         section: mode.section as any,
         mode: mode.id as any,
-        totalQuestions: 5,
+        totalQuestions: mode.id === "diagnostic" ? 8 : 5,
       });
-      window.location.href = `/practice/${mode.section === "full" ? "speaking" : mode.section}?mode=${mode.id}`;
+      const firstQuestion = Array.isArray(session.questionPlan) ? session.questionPlan[0] as { questionId?: number } | undefined : undefined;
+      if (!firstQuestion?.questionId) {
+        toast.error("This mode has no available questions yet.");
+        return;
+      }
+      window.location.href = `/session/${session.id}?questionId=${firstQuestion.questionId}&mode=${mode.id}`;
     } catch {
       toast.error("Failed to start session");
     }

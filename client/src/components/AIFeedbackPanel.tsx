@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { trpc } from "@/lib/trpc";
+import { getFeedbackAccordionMotion, toggleFeedbackPanel } from "@/lib/feedbackPanel";
 import {
   Brain, ChevronDown, ChevronUp, Star, AlertTriangle, CheckCircle,
   Lightbulb, Target, BookOpen, TrendingUp, X, Loader2, Sparkles
@@ -10,6 +12,8 @@ interface AIFeedbackPanelProps {
   taskType: string;
   score: number;
   maxScore: number;
+  scoreConfidence?: number;
+  needsReview?: boolean;
   onClose?: () => void;
 }
 
@@ -35,13 +39,16 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-green-100 text-green-700 border-green-200",
 };
 
-export default function AIFeedbackPanel({ responseId, taskType, score, maxScore, onClose }: AIFeedbackPanelProps) {
+export default function AIFeedbackPanel({ responseId, taskType, score, maxScore, scoreConfidence, needsReview, onClose }: AIFeedbackPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     breakdown: true,
     errors: false,
     tips: true,
     model: false,
   });
+  const [panelExpanded, setPanelExpanded] = useState(false);
+  const reducedMotion = useReducedMotion() ?? false;
+  const accordionMotion = getFeedbackAccordionMotion(reducedMotion);
 
   const getTaskFeedback = trpc.aiCoach.getTaskFeedback.useMutation();
 
@@ -76,11 +83,24 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
               <p className="text-teal-100 text-xs">Your Score</p>
               <p className="text-white font-extrabold text-xl">{score}<span className="text-teal-200 text-sm">/{maxScore}</span></p>
             </div>
-            {onClose && (
-              <button onClick={onClose} className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors">
-                <X className="w-4 h-4 text-white" />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {feedback && (
+                <button
+                  type="button"
+                  onClick={() => setPanelExpanded(toggleFeedbackPanel) }
+                  className="flex h-8 items-center gap-1 rounded-lg bg-white/20 px-2 text-xs font-semibold text-white hover:bg-white/30"
+                  aria-expanded={panelExpanded}
+                >
+                  {panelExpanded ? "Collapse" : "Expand"}
+                  {panelExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              )}
+              {onClose && (
+                <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 transition-colors hover:bg-white/30">
+                  <X className="h-4 w-4 text-white" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -103,6 +123,14 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
       </div>
 
       <div className="p-5">
+        {needsReview && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This score is flagged for review because the AI confidence is {scoreConfidence !== undefined ? `${Math.round(scoreConfidence * 100)}%` : "low"}. Use the detailed feedback as practice guidance, not as an official score report.
+            </span>
+          </div>
+        )}
         {!feedback && !getTaskFeedback.isPending && (
           <div className="text-center py-8">
             <div className="w-16 h-16 bg-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -130,8 +158,34 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
           </div>
         )}
 
-        {feedback && (
-          <div className="space-y-4">
+        {feedback && !panelExpanded && (
+          <button
+            type="button"
+            onClick={() => setPanelExpanded(true)}
+            className="w-full rounded-xl border border-teal-200 bg-teal-50 p-4 text-left transition-colors hover:bg-teal-100"
+            aria-label="Expand detailed AI feedback"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-teal-800">{feedback.overallBand}</p>
+                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-teal-700">{feedback.detailedFeedback}</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-bold text-teal-700">View details</span>
+            </div>
+          </button>
+        )}
+
+        <AnimatePresence initial={false}>
+          {feedback && panelExpanded && (
+            <motion.div
+              key="expanded-feedback"
+              className="space-y-4"
+              initial={reducedMotion ? false : { opacity: 0, height: 0, y: -8 }}
+              animate={{ opacity: 1, height: "auto", y: 0 }}
+              exit={reducedMotion ? undefined : { opacity: 0, height: 0, y: -8 }}
+              transition={{ duration: reducedMotion ? 0 : 0.24, ease: "easeOut" }}
+              style={{ overflow: "hidden" }}
+            >
             {/* Overall Band */}
             <div className={`flex items-center justify-between p-4 rounded-xl border ${BAND_COLORS[feedback.overallBand]}`}>
               <div className="flex items-center gap-3">
@@ -161,8 +215,13 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                 </div>
                 {expanded.breakdown ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
               </button>
-              {expanded.breakdown && (
-                <div className="p-4 space-y-3">
+              <AnimatePresence initial={false}>
+                {expanded.breakdown && (
+                  <motion.div
+                    {...accordionMotion}
+                    style={{ overflow: "hidden" }}
+                  >
+                    <div className="p-4 space-y-3">
                   {feedback.scoreBreakdown.map((item, i) => (
                     <div key={i}>
                       <div className="flex items-center justify-between mb-1">
@@ -182,8 +241,10 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                       <p className="text-xs text-gray-500">{item.comment}</p>
                     </div>
                   ))}
-                </div>
-              )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Specific Errors */}
@@ -199,8 +260,13 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                   </div>
                   {expanded.errors ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                 </button>
-                {expanded.errors && (
-                  <div className="p-4 space-y-4">
+                <AnimatePresence initial={false}>
+                  {expanded.errors && (
+                    <motion.div
+                      {...accordionMotion}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className="p-4 space-y-4">
                     {feedback.specificErrors.map((err, i) => (
                       <div key={i} className="bg-red-50 border border-red-100 rounded-xl p-4">
                         <div className="flex items-start gap-2 mb-2">
@@ -219,8 +285,10 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                         <p className="text-xs text-gray-600">{err.explanation}</p>
                       </div>
                     ))}
-                  </div>
-                )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 
@@ -236,8 +304,13 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                 </div>
                 {expanded.tips ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
               </button>
-              {expanded.tips && (
-                <div className="p-4 space-y-3">
+              <AnimatePresence initial={false}>
+                {expanded.tips && (
+                  <motion.div
+                    {...accordionMotion}
+                    style={{ overflow: "hidden" }}
+                  >
+                    <div className="p-4 space-y-3">
                   {feedback.improvementTips.map((tip, i) => (
                     <div key={i} className="border border-gray-100 rounded-xl p-4">
                       <div className="flex items-center gap-2 mb-2">
@@ -255,8 +328,10 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Model Answers (Band 65 / 79 / 90) */}
@@ -272,9 +347,14 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                   </div>
                   {expanded.model ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                 </button>
-                {expanded.model && (
-                  <div className="p-4 space-y-3">
-                    {feedback.modelAnswers.map((ma, i) => (
+                <AnimatePresence initial={false}>
+                  {expanded.model && (
+                    <motion.div
+                      {...accordionMotion}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className="p-4 space-y-3">
+                        {feedback.modelAnswers.map((ma, i) => (
                       <div key={i} className="bg-purple-50 border border-purple-100 rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-200 text-purple-800">Band {ma.band}</span>
@@ -282,9 +362,11 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                         <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap mb-2">{ma.response}</p>
                         <p className="text-xs text-purple-600 italic">{ma.commentary}</p>
                       </div>
-                    ))}
-                  </div>
-                )}
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 
@@ -303,8 +385,9 @@ export default function AIFeedbackPanel({ responseId, taskType, score, maxScore,
                 ))}
               </ul>
             </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

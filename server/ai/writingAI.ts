@@ -15,24 +15,30 @@
  */
 
 import { invokeLLM } from "../_core/llm";
+import { calibrateScore } from "@shared/scoreCalibrationTable";
+import { PTE_SUBJECTIVE_CALIBRATION_ANCHORS } from "@shared/pteCalibrationAnchors";
+import { calibrateWritingReferenceScore } from "./referenceCalibration";
 
 // ─── Deterministic Pre-Processing Utilities ───────────────────────────────────
 
-function countWords(text: string): number {
+function countWords(text: string | null | undefined): number {
+  if (!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function countSentences(text: string): number {
-  // Count sentence-ending punctuation
+function countSentences(text: string | null | undefined): number {
+  if (!text) return 0;
   const matches = text.match(/[.!?]+/g);
   return matches ? matches.length : 0;
 }
 
-function countParagraphs(text: string): number {
+function countParagraphs(text: string | null | undefined): number {
+  if (!text) return 0;
   return text.split(/\n\s*\n/).filter((p) => p.trim().length > 0).length;
 }
 
-function isAllCaps(text: string): boolean {
+function isAllCaps(text: string | null | undefined): boolean {
+  if (!text) return false;
   const letters = text.replace(/[^a-zA-Z]/g, "");
   if (letters.length === 0) return false;
   return letters === letters.toUpperCase();
@@ -389,6 +395,7 @@ ${preProcessing}
 ${SUMMARIZE_WRITTEN_TEXT_RUBRIC}
 
 ${WRITING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 Note: Form score is already FIXED at ${formScore}/2 by the pre-processor. Do NOT change it.
@@ -503,15 +510,16 @@ Respond ONLY with valid JSON:`;
     result.traits.form.maxScore = 2;
   }
 
-  // Recalculate raw score and PTE score with fixed form
+  // Recalculate raw score and PTE score with calibration table
   const rawScore =
     formScore +
     (result.traits.content?.score || 0) +
     (result.traits.grammar?.score || 0) +
     (result.traits.vocabulary?.score || 0);
   result.rawScore = rawScore;
-  result.overallScore = Math.round(10 + (rawScore / 8) * 80);
-  result.overallScore = Math.max(10, Math.min(90, result.overallScore));
+  const calibrated = calibrateScore("writing_essay", rawScore);
+  result.overallScore = calibrated.pteScore;
+  result.cefrLevel = calibrated.cefrLevel;
 
   return result;
 }
@@ -613,6 +621,7 @@ ${preProcessing}
 ${WRITE_ESSAY_RUBRIC}
 
 ${WRITING_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ═══ CHAIN-OF-THOUGHT SCORING INSTRUCTIONS ═══
 Note: Form score is FIXED at ${formScore}/2 and Spelling score is FIXED at ${spellingScore}/2. Do NOT change them.
@@ -793,8 +802,12 @@ Respond ONLY with valid JSON:`;
     spellingScore;
 
   result.rawScore = rawScore;
-  result.overallScore = Math.round(10 + (rawScore / 15) * 80);
-  result.overallScore = Math.max(10, Math.min(90, result.overallScore));
+  result.overallScore = calibrateWritingReferenceScore({
+    rawScore,
+    maxRawScore: 15,
+    formValid: formScore > 0,
+    contentScore,
+  });
 
   // Set CEFR based on final score
   if (result.overallScore >= 85) result.cefrLevel = "C2";

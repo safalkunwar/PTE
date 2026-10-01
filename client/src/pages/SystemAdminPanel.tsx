@@ -54,6 +54,8 @@ export default function SystemAdminPanel() {
     </div>
   );
 
+  const InlineSkeleton = () => <span className="inline-block h-6 w-14 rounded bg-slate-600 animate-pulse" aria-label="Loading" />;
+
   // Empty state
   const EmptyState = ({ message }: { message: string }) => (
     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -114,7 +116,7 @@ export default function SystemAdminPanel() {
                   <div>
                     <p className="text-sm text-slate-400 mb-1">Total Users</p>
                     <p className="text-lg font-bold text-white">
-                      {statsLoading ? "..." : systemStats?.totalUsers || 0}
+                      {statsLoading ? <InlineSkeleton /> : systemStats?.totalUsers || 0}
                     </p>
                   </div>
                   <Users className="w-8 h-8 text-blue-500" />
@@ -129,7 +131,7 @@ export default function SystemAdminPanel() {
                   <div>
                     <p className="text-sm text-slate-400 mb-1">Active Subscriptions</p>
                     <p className="text-lg font-bold text-white">
-                      {statsLoading ? "..." : systemStats?.activeSubscriptions || 0}
+                      {statsLoading ? <InlineSkeleton /> : systemStats?.activeSubscriptions || 0}
                     </p>
                   </div>
                   <TrendingUp className="w-8 h-8 text-green-500" />
@@ -144,7 +146,7 @@ export default function SystemAdminPanel() {
                   <div>
                     <p className="text-sm text-slate-400 mb-1">Total Revenue</p>
                     <p className="text-lg font-bold text-white">
-                      ₨{statsLoading ? "..." : (systemStats?.totalRevenue || 0).toLocaleString()}
+                      {statsLoading ? <>₨<InlineSkeleton /></> : <>₨{(systemStats?.totalRevenue || 0).toLocaleString()}</>}
                     </p>
                   </div>
                   <Zap className="w-8 h-8 text-yellow-500" />
@@ -159,7 +161,7 @@ export default function SystemAdminPanel() {
                   <div>
                     <p className="text-sm text-slate-400 mb-1">Failed Payments</p>
                     <p className="text-lg font-bold text-white">
-                      {statsLoading ? "..." : systemStats?.failedPayments || 0}
+                      {statsLoading ? <InlineSkeleton /> : systemStats?.failedPayments || 0}
                     </p>
                   </div>
                   <AlertCircle className="w-8 h-8 text-red-500" />

@@ -1,6 +1,5 @@
-import { eq, desc, and, gte, lte, gt, asc, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { eq, desc, and, gte, lte, gt, asc, sql, inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
   users,
@@ -19,15 +18,14 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { shouldCreateCard } from "./sm2";
+import { getTaskTypeVariants, normalizeTaskType } from "@shared/taskTypeAliases";
 
 let _db: ReturnType<typeof drizzle> | null = null;
-let _client: ReturnType<typeof postgres> | null = null;
 
 export async function getDb() {
-  if (!_db && ENV.databaseUrl) {
+  if (!_db && process.env.DATABASE_URL) {
     try {
-      _client = postgres(ENV.databaseUrl, { prepare: false, max: 1 });
-      _db = drizzle(_client);
+      _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -65,16 +63,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.role = "admin";
     }
     if (!values.lastSignedIn) values.lastSignedIn = new Date();
-    updateSet.updatedAt = new Date();
-    if (Object.keys(updateSet).length === 1) updateSet.lastSignedIn = new Date();
-
-    await db
-      .insert(users)
-      .values(values)
-      .onConflictDoUpdate({
-        target: users.openId,
-        set: updateSet,
-      });
+    if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -88,72 +78,80 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateUserProfile(
-  userId: number,
-  data: {
-    targetScore?: number;
-    currentLevel?: "beginner" | "intermediate" | "advanced";
-    dailyGoalMinutes?: number;
-    notificationsEnabled?: boolean;
-  }
-) {
+export async function updateUserProfile(userId: number, data: {
+  targetScore?: number;
+  currentLevel?: "beginner" | "intermediate" | "advanced";
+  dailyGoalMinutes?: number;
+  notificationsEnabled?: boolean;
+}) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ ...data, updatedAt: new Date() }).where(eq(users.id, userId));
+  await db.update(users).set(data).where(eq(users.id, userId));
 }
 
+// Questions
 export async function getQuestions(filters: {
   section?: string;
   taskType?: string;
   difficulty?: string;
   limit?: number;
+  source?: string;
 }) {
   const db = await getDb();
   if (!db) return [];
   let query = db.select().from(questions).$dynamic();
   const conditions = [];
   if (filters.section) conditions.push(eq(questions.section, filters.section as any));
-  if (filters.taskType) conditions.push(eq(questions.taskType, filters.taskType));
+  if (filters.taskType) {
+    const taskTypeVariants = getTaskTypeVariants(filters.taskType);
+    conditions.push(inArray(questions.taskType, taskTypeVariants));
+  }
   if (filters.difficulty) conditions.push(eq(questions.difficulty, filters.difficulty as any));
   if (conditions.length > 0) query = query.where(and(...conditions));
   if (filters.limit) query = query.limit(filters.limit);
-  return query;
+  const rows = await query;
+  return rows.map((question) => ({
+    ...question,
+    taskType: normalizeTaskType(question.taskType),
+  }));
 }
 
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
-  return result[0];
+  const question = result[0];
+  return question ? { ...question, taskType: normalizeTaskType(question.taskType) } : undefined;
 }
 
 export async function insertQuestion(q: typeof questions.$inferInsert) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(questions).values(q);
+  await db.insert(questions).values({
+    ...q,
+    taskType: normalizeTaskType(q.taskType),
+  });
 }
 
+// Practice Sessions
 export async function createSession(data: typeof practiceSessions.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const [row] = await db.insert(practiceSessions).values(data).returning({ id: practiceSessions.id });
-  return row.id;
+  const result = await db.insert(practiceSessions).values(data);
+  return (result[0] as any).insertId as number;
 }
 
 export async function getSessionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db
-    .select()
-    .from(practiceSessions)
-    .where(eq(practiceSessions.id, id))
-    .limit(1);
+  const result = await db.select().from(practiceSessions).where(eq(practiceSessions.id, id)).limit(1);
   return result[0];
 }
 
 export async function updateSession(id: number, data: Partial<PracticeSession>) {
   const db = await getDb();
   if (!db) return;
+  if (!data || Object.keys(data).length === 0) return;
   await db.update(practiceSessions).set(data as any).where(eq(practiceSessions.id, id));
 }
 
@@ -171,32 +169,31 @@ export async function getUserSessions(userId: number, limit = 20) {
 export async function getSessionResponses(sessionId: number) {
   const db = await getDb();
   if (!db) return [];
-  const responses = await db
-    .select()
-    .from(userResponses)
-    .where(eq(userResponses.sessionId, sessionId));
-  const withQuestions = await Promise.all(
-    responses.map(async (r) => {
-      const q = await getQuestionById(r.questionId);
-      return { ...r, question: q || null };
-    })
-  );
+  const responses = await db.select().from(userResponses).where(eq(userResponses.sessionId, sessionId));
+  // Attach question data
+  const withQuestions = await Promise.all(responses.map(async (r) => {
+    const q = await getQuestionById(r.questionId);
+    return { ...r, question: q || null };
+  }));
   return withQuestions;
 }
 
+// User Responses
 export async function createResponse(data: typeof userResponses.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const [row] = await db.insert(userResponses).values(data).returning({ id: userResponses.id });
-  return row.id;
+  const result = await db.insert(userResponses).values(data);
+  return (result[0] as any).insertId as number;
 }
 
 export async function updateResponse(id: number, data: Partial<UserResponse>) {
   const db = await getDb();
   if (!db) return;
+  if (!data || Object.keys(data).length === 0) return;
   await db.update(userResponses).set(data as any).where(eq(userResponses.id, id));
 }
 
+// Analytics
 export async function getUserAnalytics(userId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -209,23 +206,28 @@ export async function getUserAnalytics(userId: number) {
 
   const totalSessions = sessions.length;
   const latestSession = sessions[0];
-  const avgScore =
-    totalSessions > 0
-      ? sessions.reduce((sum, s) => sum + (s.overallScore || 0), 0) / totalSessions
-      : 0;
+  const avgScore = totalSessions > 0
+    ? sessions.reduce((sum, s) => sum + (s.overallScore || 0), 0) / totalSessions
+    : 0;
 
   return { sessions, totalSessions, latestSession, avgScore };
 }
 
+// Practice Targets
 export async function getTodayTarget(userId: number) {
   const db = await getDb();
   if (!db) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
   const result = await db
     .select()
     .from(practiceTargets)
-    .where(and(eq(practiceTargets.userId, userId), gte(practiceTargets.targetDate, today)))
+    .where(and(
+      eq(practiceTargets.userId, userId),
+      gte(practiceTargets.targetDate, today)
+    ))
     .limit(1);
   return result[0] ?? null;
 }
@@ -236,15 +238,11 @@ export async function upsertPracticeTarget(data: typeof practiceTargets.$inferIn
   await db.insert(practiceTargets).values(data);
 }
 
+// Milestones
 export async function getUserMilestones(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select()
-    .from(milestones)
-    .where(eq(milestones.userId, userId))
-    .orderBy(desc(milestones.achievedAt))
-    .limit(20);
+  return db.select().from(milestones).where(eq(milestones.userId, userId)).orderBy(desc(milestones.achievedAt)).limit(20);
 }
 
 export async function createMilestone(data: typeof milestones.$inferInsert) {
@@ -256,10 +254,16 @@ export async function createMilestone(data: typeof milestones.$inferInsert) {
 export async function getQuestionsCount() {
   const db = await getDb();
   if (!db) return 0;
-  const result = await db.select({ count: sql<number>`count(*)::int` }).from(questions);
+  const result = await db.select({ count: sql<number>`count(*)` }).from(questions);
   return result[0]?.count ?? 0;
 }
 
+// ─── Spaced Repetition (SRS) helpers ────────────────────────────────────────
+
+/**
+ * Get or create an SRS card for a (userId, questionId) pair.
+ * Returns the existing card if one already exists.
+ */
 export async function getOrCreateSrsCard(
   userId: number,
   questionId: number,
@@ -269,6 +273,7 @@ export async function getOrCreateSrsCard(
   const db = await getDb();
   if (!db) return null;
 
+  // Check for existing card
   const existing = await db
     .select()
     .from(srsCards)
@@ -276,23 +281,17 @@ export async function getOrCreateSrsCard(
     .limit(1);
 
   if (existing.length > 0) {
-    if (
-      lastScore !== undefined &&
-      existing[0] &&
-      (existing[0].lastScore === null || lastScore < (existing[0].lastScore ?? 100))
-    ) {
+    // Update lastScore if a new lower score comes in
+    if (lastScore !== undefined && existing[0] && (existing[0].lastScore === null || lastScore < (existing[0].lastScore ?? 100))) {
       await db
         .update(srsCards)
-        .set({
-          lastScore,
-          sourceResponseId: sourceResponseId ?? existing[0].sourceResponseId,
-          updatedAt: new Date(),
-        })
+        .set({ lastScore, sourceResponseId: sourceResponseId ?? existing[0].sourceResponseId })
         .where(eq(srsCards.id, existing[0].id));
     }
     return existing[0] ?? null;
   }
 
+  // Create new card — due immediately (today)
   const dueDate = new Date();
   const values: InsertSrsCard = {
     userId,
@@ -320,12 +319,16 @@ export async function getOrCreateSrsCard(
   return created[0] ?? null;
 }
 
+/**
+ * Get all SRS cards due for review for a user.
+ * Sorted by urgency: overdue cards first, then by lapses.
+ */
 export async function getDueCards(userId: number, limit = 20) {
   const db = await getDb();
   if (!db) return [];
 
   const now = new Date();
-  return db
+  const rows = await db
     .select({
       card: srsCards,
       question: questions,
@@ -335,8 +338,13 @@ export async function getDueCards(userId: number, limit = 20) {
     .where(and(eq(srsCards.userId, userId), lte(srsCards.dueDate, now)))
     .orderBy(asc(srsCards.dueDate), desc(srsCards.lapses))
     .limit(limit);
+
+  return rows;
 }
 
+/**
+ * Get upcoming SRS cards (not yet due) for a user.
+ */
 export async function getUpcomingCards(userId: number, limit = 10) {
   const db = await getDb();
   if (!db) return [];
@@ -351,6 +359,9 @@ export async function getUpcomingCards(userId: number, limit = 10) {
     .limit(limit);
 }
 
+/**
+ * Update an SRS card after a review.
+ */
 export async function updateSrsCard(
   cardId: number,
   updates: {
@@ -366,13 +377,6 @@ export async function updateSrsCard(
   const db = await getDb();
   if (!db) return;
 
-  const [existing] = await db
-    .select()
-    .from(srsCards)
-    .where(eq(srsCards.id, cardId))
-    .limit(1);
-  if (!existing) return;
-
   await db
     .update(srsCards)
     .set({
@@ -383,21 +387,24 @@ export async function updateSrsCard(
       state: updates.state,
       dueDate: updates.dueDate,
       lastReviewedAt: new Date(),
-      updatedAt: new Date(),
-      totalReviews: (existing.totalReviews ?? 0) + 1,
-      correctReviews: updates.isCorrect
-        ? (existing.correctReviews ?? 0) + 1
-        : existing.correctReviews,
+      totalReviews: sql`totalReviews + 1`,
+      correctReviews: updates.isCorrect ? sql`correctReviews + 1` : sql`correctReviews`,
     })
     .where(eq(srsCards.id, cardId));
 }
 
+/**
+ * Log a review to the srs_review_logs table.
+ */
 export async function logSrsReview(data: typeof srsReviewLogs.$inferInsert) {
   const db = await getDb();
   if (!db) return;
   await db.insert(srsReviewLogs).values(data);
 }
 
+/**
+ * Get SRS statistics for a user.
+ */
 export async function getSrsStats(userId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -405,46 +412,32 @@ export async function getSrsStats(userId: number) {
   const now = new Date();
 
   const [totalCards, dueCards, reviewedToday, allCards] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(srsCards)
-      .where(eq(srsCards.userId, userId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(srsCards)
-      .where(and(eq(srsCards.userId, userId), lte(srsCards.dueDate, now))),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(srsReviewLogs)
-      .where(
-        and(
-          eq(srsReviewLogs.userId, userId),
-          gte(srsReviewLogs.reviewedAt, new Date(now.getFullYear(), now.getMonth(), now.getDate()))
-        )
-      ),
-    db
-      .select({
-        totalReviews: srsCards.totalReviews,
-        correctReviews: srsCards.correctReviews,
-        state: srsCards.state,
-        lapses: srsCards.lapses,
-      })
-      .from(srsCards)
-      .where(eq(srsCards.userId, userId)),
+    // Total cards
+    db.select({ count: sql<number>`count(*)` }).from(srsCards).where(eq(srsCards.userId, userId)),
+    // Due now
+    db.select({ count: sql<number>`count(*)` }).from(srsCards).where(and(eq(srsCards.userId, userId), lte(srsCards.dueDate, now))),
+    // Reviewed today
+    db.select({ count: sql<number>`count(*)` }).from(srsReviewLogs).where(
+      and(
+        eq(srsReviewLogs.userId, userId),
+        gte(srsReviewLogs.reviewedAt, new Date(now.getFullYear(), now.getMonth(), now.getDate()))
+      )
+    ),
+    // All cards for retention calc
+    db.select({ totalReviews: srsCards.totalReviews, correctReviews: srsCards.correctReviews, state: srsCards.state, lapses: srsCards.lapses })
+      .from(srsCards).where(eq(srsCards.userId, userId)),
   ]);
 
   const totalReviews = allCards.reduce((s, c) => s + (c.totalReviews ?? 0), 0);
   const correctReviews = allCards.reduce((s, c) => s + (c.correctReviews ?? 0), 0);
   const retentionRate = totalReviews > 0 ? Math.round((correctReviews / totalReviews) * 100) : 0;
 
-  const byState = allCards.reduce(
-    (acc, c) => {
-      acc[c.state] = (acc[c.state] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+  const byState = allCards.reduce((acc, c) => {
+    acc[c.state] = (acc[c.state] ?? 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
+  // Review history for the last 14 days (for heatmap)
   const fourteenDaysAgo = new Date(now);
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
   const recentLogs = await db
@@ -463,6 +456,9 @@ export async function getSrsStats(userId: number) {
   };
 }
 
+/**
+ * Get a single SRS card by ID.
+ */
 export async function getSrsCardById(cardId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -470,10 +466,15 @@ export async function getSrsCardById(cardId: number) {
   return result[0] ?? null;
 }
 
+/**
+ * Auto-create SRS cards from a completed practice session's responses.
+ * Called after a session is submitted.
+ */
 export async function autoCreateSrsCardsFromSession(userId: number, sessionId: number) {
   const db = await getDb();
   if (!db) return 0;
 
+  // Get all responses from this session that scored below threshold
   const responses = await db
     .select()
     .from(userResponses)
@@ -483,7 +484,12 @@ export async function autoCreateSrsCardsFromSession(userId: number, sessionId: n
   for (const response of responses) {
     const score = response.normalizedScore ?? 0;
     if (shouldCreateCard(score)) {
-      const card = await getOrCreateSrsCard(userId, response.questionId, response.id, score);
+      const card = await getOrCreateSrsCard(
+        userId,
+        response.questionId,
+        response.id,
+        score
+      );
       if (card) created++;
     }
   }

@@ -98,7 +98,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-gray-100 rounded-lg lg:hidden"
+              className="p-2 hover:bg-gray-100 rounded-lg lg:hidden transition-all duration-200 hover:-translate-y-0.5 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <Menu size={20} />
             </button>
@@ -106,7 +106,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </div>
 
           <div className="flex items-center gap-4">
-            <button className="p-2 hover:bg-gray-100 rounded-lg relative">
+            <button className="p-2 hover:bg-gray-100 rounded-lg relative transition-all duration-200 hover:-translate-y-0.5 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
               <Bell size={20} className="text-gray-600" />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>

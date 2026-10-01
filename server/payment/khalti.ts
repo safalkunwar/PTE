@@ -3,6 +3,8 @@
  * Nepali digital wallet and payment gateway
  */
 
+import crypto from "crypto";
+
 export interface KhaltiConfig {
   publicKey: string;
   secretKey: string;
@@ -144,7 +146,7 @@ export async function verifyKhaltiPayment(
  * Generate unique reference ID for payment
  */
 export function generateReferenceId(userId: number, timestamp: number): string {
-  return `KHL${userId}${timestamp}`;
+  return `KHL${userId}${timestamp}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
 /**

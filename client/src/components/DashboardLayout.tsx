@@ -25,7 +25,9 @@ import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { getSidebarHighlightMotion } from "@/lib/sidebarNavigation";
 import { Button } from "./ui/button";
+import { motion, useReducedMotion } from "framer-motion";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Page 1", path: "/" },
@@ -114,6 +116,7 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (isCollapsed) {
@@ -188,8 +191,16 @@ function DashboardLayoutContent({
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
+                      className={`relative h-10 transition-all font-normal`}
                     >
+                      {isActive ? (
+                        <motion.span
+                          aria-hidden="true"
+                          data-sidebar-active-indicator="true"
+                          className="absolute inset-y-1 left-0 w-0.5 origin-center rounded-full bg-primary"
+                          {...getSidebarHighlightMotion(Boolean(prefersReducedMotion))}
+                        />
+                      ) : null}
                       <item.icon
                         className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
                       />

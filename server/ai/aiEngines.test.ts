@@ -30,6 +30,7 @@ import {
   scoreSummarizeSpokenText,
   scoreWriteFromDictation,
   scoreHighlightCorrectSummary,
+  scoreListeningTask,
 } from "./listeningAI";
 
 // ── Helper to create mock LLM response ────────────────────────────────────
@@ -77,10 +78,113 @@ describe("Speaking AI Engine", () => {
     expect(result.traits).toBeDefined();
     expect(result.traits.pronunciation).toBeDefined();
     expect(result.traits.oralFluency).toBeDefined();
+    expect(result.traits.oralFluency?.score).toBeGreaterThanOrEqual(0);
+    expect(result.traits.oralFluency?.score).toBeLessThanOrEqual(5);
     expect(result.cefrLevel).toMatch(/^(A1|A2|B1|B2|C1|C2)$/);
     expect(result.strengths).toBeInstanceOf(Array);
     expect(result.improvements).toBeInstanceOf(Array);
     expect(result.strategyTips).toBeInstanceOf(Array);
+  });
+
+  it("keeps a native-like Read Aloud reference in the top PTE band", async () => {
+    mockLLMResponse({
+      taskType: "read_aloud",
+      overallScore: 90,
+      rawScore: 15,
+      maxRawScore: 15,
+      traits: {
+        pronunciation: { score: 5, maxScore: 5, feedback: "Native-like clarity and stress." },
+        oralFluency: { score: 5, maxScore: 5, feedback: "Smooth, natural phrasing." },
+      },
+      cefrLevel: "C2",
+      overallFeedback: "Complete and fluent reference performance.",
+      strengths: ["Accurate content", "Natural fluency"],
+      improvements: [],
+      strategyTips: [],
+      wordLevelFeedback: "",
+    });
+
+    const reference = "The department of statistics has released a comprehensive report on urban demographic trends across metropolitan regions.";
+    const result = await scoreSpeakingTask({
+      taskType: "read_aloud",
+      originalText: reference,
+      transcription: reference,
+    });
+
+    expect(result.overallScore).toBe(90);
+    expect(result.traits.pronunciation?.score).toBe(5);
+    expect(result.traits.oralFluency?.score).toBe(5);
+  });
+
+  it("caps fluency and pronunciation when only a few words are spoken", async () => {
+    mockLLMResponse({
+      taskType: "read_aloud",
+      overallScore: 55,
+      rawScore: 5,
+      maxRawScore: 10,
+      traits: {
+        pronunciation: { score: 3, maxScore: 5, feedback: "Clear." },
+        oralFluency: { score: 2, maxScore: 5, feedback: "Some pauses." },
+        content: { score: 1, maxScore: 10, feedback: "Partial." },
+      },
+      cefrLevel: "B1",
+      overallFeedback: "Partial response.",
+      strengths: [],
+      improvements: [],
+      strategyTips: [],
+      wordLevelFeedback: "",
+    });
+
+    const result = await scoreSpeakingTask({
+      taskType: "read_aloud",
+      originalText: "The university has published a comprehensive report about regional economic development.",
+      transcription: "The university",
+      wpm: 3,
+    });
+
+    expect(result.traits.oralFluency?.score).toBe(1);
+    expect(result.traits.pronunciation?.score).toBe(1);
+    expect(result.overallScore).toBeLessThanOrEqual(35);
+    expect(result.overallFeedback).toContain("Only 2");
+  });
+
+  it("scores a known strong Write Essay reference within the upper band range", async () => {
+    mockLLMResponse({
+      taskType: "write_essay",
+      overallScore: 79,
+      rawScore: 16,
+      maxRawScore: 18,
+      wordCount: 220,
+      traits: {
+        content: { score: 3, maxScore: 3, feedback: "Fully relevant and developed." },
+        form: { score: 2, maxScore: 2, feedback: "Within the required range." },
+        grammar: { score: 2, maxScore: 2, feedback: "Accurate complex structures." },
+        vocabulary: { score: 2, maxScore: 2, feedback: "Wide academic range." },
+        spelling: { score: 1, maxScore: 1, feedback: "No spelling errors." },
+        development: { score: 2, maxScore: 2, feedback: "Ideas are well supported." },
+        linguisticRange: { score: 2, maxScore: 2, feedback: "Flexible sentence structures." },
+        coherence: { score: 2, maxScore: 2, feedback: "Clear progression." },
+        discourse: { score: 2, maxScore: 2, feedback: "Effective cohesion." },
+      },
+      cefrLevel: "C1",
+      overallFeedback: "A strong academic reference response.",
+      strengths: ["Clear organization", "Precise vocabulary"],
+      improvements: [],
+      strategyTips: [],
+      grammarErrors: [],
+      vocabularyFeedback: "Advanced academic vocabulary.",
+      modelAnswer: "",
+    });
+
+    const response = Array.from({ length: 220 }, (_, index) => index % 2 === 0 ? "Technology" : "supports").join(" ");
+    const result = await scoreWritingTask({
+      taskType: "write_essay",
+      prompt: "Discuss whether technology improves modern life.",
+      response,
+    });
+
+    expect(result.overallScore).toBeGreaterThanOrEqual(79);
+    expect(result.traits.form?.score).toBe(2);
   });
 
   it("scores Repeat Sentence with pronunciation and fluency traits", async () => {
@@ -142,6 +246,34 @@ describe("Speaking AI Engine", () => {
     expect(result.overallScore).toBeGreaterThanOrEqual(10);
     expect(result.overallScore).toBeLessThanOrEqual(90);
     expect(result.traits.content).toBeDefined();
+  });
+
+  it("passes the stored reference answer into Answer Short Question scoring", async () => {
+    mockLLMResponse({
+      taskType: "answer_short_question",
+      overallScore: 90,
+      rawScore: 1,
+      maxRawScore: 1,
+      traits: {
+        vocabulary: { score: 1, maxScore: 1, feedback: "The response is correct." },
+      },
+      cefrLevel: "C2",
+      overallFeedback: "Correct short answer.",
+      strengths: ["Accurate vocabulary"],
+      improvements: [],
+      strategyTips: [],
+      wordLevelFeedback: "",
+    });
+
+    const result = await scoreSpeakingTask({
+      taskType: "answer_short_question",
+      question: "What process do plants use to convert sunlight into food?",
+      correctAnswer: "Photosynthesis",
+      transcription: "Photosynthesis",
+    });
+
+    expect(result.overallScore).toBe(90);
+    expect(JSON.stringify(mockInvokeLLM.mock.calls[0]?.[0])).toContain("Photosynthesis");
   });
 });
 
@@ -415,6 +547,48 @@ describe("Listening AI Engine", () => {
 
     expect(result.rawScore).toBe(1);
     expect(result.overallScore).toBe(90);
+  });
+
+  it("dispatches canonical Listening Multiple Choice IDs to deterministic scoring", async () => {
+    const result = await scoreListeningTask({
+      taskType: "multiple_choice_single",
+      correctAnswer: "Supported claim",
+      userAnswer: "Supported claim",
+    });
+
+    expect(result.rawScore).toBe(1);
+    expect(result.overallScore).toBe(90);
+  });
+
+  it("dispatches canonical Listening FIB-L IDs to deterministic blank scoring", async () => {
+    mockLLMResponse({
+      taskType: "fill_blanks_listening",
+      overallScore: 50,
+      rawScore: 0,
+      maxRawScore: 3,
+      correctAnswers: [],
+      userAnswers: [],
+      cefrLevel: "B1",
+      overallFeedback: "Deterministic blank scoring completed.",
+      strengths: [],
+      improvements: [],
+      strategyTips: [],
+    });
+    const result = await scoreListeningTask({
+      taskType: "fill_blanks_listening",
+      transcript: "The recording mentions climate policy research.",
+      blanks: [
+        { position: 0, correctWord: "climate", userWord: "climate" },
+        { position: 1, correctWord: "policy", userWord: "polciy" },
+        { position: 2, correctWord: "research", userWord: "wrong" },
+      ],
+    });
+
+    expect(result.rawScore).toBe(1);
+    expect(result.maxRawScore).toBe(3);
+    expect(result.overallScore).toBeGreaterThan(10);
+    expect(result.overallScore).toBeLessThan(90);
+    expect(result.correctAnswers).toEqual(["climate", "policy", "research"]);
   });
 });
 

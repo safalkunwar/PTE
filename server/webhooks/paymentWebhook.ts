@@ -10,6 +10,7 @@ import {
   getPaymentByReferenceId,
   createSubscription,
   getUserActiveSubscription,
+  linkPaymentToSubscription,
 } from "../payment/db";
 import { verifyESewaPayment } from "../payment/esewa";
 import { verifyKhaltiPayment } from "../payment/khalti";
@@ -62,11 +63,12 @@ router.post("/esewa", async (req: Request, res: Response) => {
         const planMatch = (pid as string)?.match(/PLAN(\d+)/);
         if (planMatch) {
           const planId = parseInt(planMatch[1]);
-          await createSubscription({
+          const subscription = await createSubscription({
             userId: payment.userId,
             planId,
             autoRenew: true,
           });
+          if (subscription?.id) await linkPaymentToSubscription(payment.id, subscription.id);
         }
       }
     }
@@ -121,11 +123,12 @@ router.post("/khalti", async (req: Request, res: Response) => {
       if (payment.subscriptionId === null && payment.gateway === "khalti") {
         // For now, assume this is a Pro plan subscription
         // In production, store plan info in payment metadata
-        await createSubscription({
+        const subscription = await createSubscription({
           userId: payment.userId,
           planId: 2, // Pro plan
           autoRenew: true,
         });
+        if (subscription?.id) await linkPaymentToSubscription(payment.id, subscription.id);
       }
     }
 
@@ -169,11 +172,12 @@ router.post("/khalti/verify", async (req: Request, res: Response) => {
 
       // Create subscription
       if (payment.subscriptionId === null) {
-        await createSubscription({
+        const subscription = await createSubscription({
           userId: payment.userId,
           planId: 2, // Pro plan
           autoRenew: true,
         });
+        if (subscription?.id) await linkPaymentToSubscription(payment.id, subscription.id);
       }
     }
 

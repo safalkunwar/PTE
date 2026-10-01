@@ -3,7 +3,6 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Loader2 } from "lucide-react";
 
 export function AdminAnalyticsReal() {
   const [days, setDays] = useState(30);
@@ -39,8 +38,12 @@ export function AdminAnalyticsReal() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center h-96">
-          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+        <div className="space-y-4 animate-pulse" aria-busy="true" aria-label="Loading analytics">
+          <div className="grid grid-cols-2 gap-4">
+            {[1, 2].map((item) => <div key={item} className="h-28 rounded-xl bg-gray-100" />)}
+          </div>
+          <div className="h-12 rounded-xl bg-gray-100" />
+          <div className="h-80 rounded-xl bg-gray-100" />
         </div>
       ) : (
         <Tabs defaultValue="engagement" className="w-full">

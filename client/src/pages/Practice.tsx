@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useParams } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Mic, PenLine, Eye, Headphones, ArrowRight, Clock,
   BookOpen, ChevronDown, Info, Star, Zap, Target,
@@ -11,13 +11,17 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import { PRACTICE_CONTENT_CLASS } from "@/lib/practiceLayout";
+import { getDedicatedPracticeModeRoute } from "@/lib/practiceModeRouting";
+import { isQuestionInPracticeSection } from "@/lib/practiceRoutes";
+import TaskStudyResourceModal from "@/components/TaskStudyResourceModal";
 
 const sections = [
   {
     id: "speaking", label: "Speaking", icon: Mic,
     color: "bg-blue-500", textColor: "text-blue-600",
     borderColor: "border-blue-200", bgLight: "bg-blue-50",
-    description: "7 task types · Oral fluency, pronunciation, content"
+    description: "7 scored task types + Personal Introduction · Oral fluency, pronunciation, content"
   },
   {
     id: "writing", label: "Writing", icon: PenLine,
@@ -40,36 +44,37 @@ const sections = [
 ];
 
 // Official PTE Academic task type ordering for each section
-const SECTION_TASK_ORDER: Record<string, string[]> = {
+const taskTypeOrder: Record<string, string[]> = {
   speaking: [
+    "personal_introduction",
     "read_aloud",
     "repeat_sentence",
     "describe_image",
     "retell_lecture",
     "answer_short_question",
-    "respond_to_situation",
     "summarize_group_discussion",
+    "respond_to_situation",
   ],
   writing: [
     "summarize_written_text",
     "write_essay",
   ],
   reading: [
-    "multiple_choice_single",
+    "fill_blanks_rw",
     "multiple_choice_multiple",
     "reorder_paragraphs",
     "fill_blanks_reading",
-    "fill_blanks_rw",
+    "multiple_choice_single",
   ],
   listening: [
     "summarize_spoken_text",
-    "multiple_choice_single_listening",
-    "multiple_choice_multiple_listening",
+    "multiple_choice_multiple",
     "fill_blanks_listening",
     "highlight_correct_summary",
-    "write_from_dictation",
-    "highlight_incorrect_words",
+    "multiple_choice_single",
     "select_missing_word",
+    "highlight_incorrect_words",
+    "write_from_dictation",
   ],
 };
 
@@ -77,6 +82,15 @@ const taskTypeInfo: Record<string, {
   label: string; description: string; time: string;
   tips: string; scoring: string; difficulty: string; weight: string;
 }> = {
+  personal_introduction: {
+    label: "Personal Introduction",
+    description: "A short unscored introduction used to become familiar with the PTE test technology and speaking environment.",
+    time: "25 sec prep + 30 sec",
+    tips: "Use the preparation time to organize a brief, natural introduction. This item is not included in your PTE score.",
+    scoring: "Unscored familiarization task",
+    difficulty: "Easy",
+    weight: "Unscored",
+  },
   read_aloud: {
     label: "Read Aloud",
     description: "A text appears on screen. Read it aloud as naturally and clearly as possible within the time limit.",
@@ -105,7 +119,7 @@ const taskTypeInfo: Record<string, {
     weight: "High Impact",
   },
   retell_lecture: {
-    label: "Re-tell Lecture",
+    label: "Retell Lecture",
     description: "You will hear a lecture. Re-tell the key points in your own words within the time limit.",
     time: "40 sec",
     tips: "Take notes during the lecture. Mention the topic, main points, and conclusion.",
@@ -273,6 +287,7 @@ const weightColor: Record<string, string> = {
 
 export default function Practice() {
   const params = useParams<{ section?: string }>();
+  const requestedTaskType = new URLSearchParams(window.location.search).get("taskType");
   const [activeSection, setActiveSection] = useState(params.section || "speaking");
 
   // Sync activeSection when URL param changes (e.g., navigating from Home "Practice Now")
@@ -283,76 +298,118 @@ export default function Practice() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.section]);
-  const [selectedMode, setSelectedMode] = useState<"beginner" | "exam" | "diagnostic" | "revision">("exam");
-  const [expandedTaskType, setExpandedTaskType] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (requestedTaskType) setExpandedTaskType(requestedTaskType);
+  }, [requestedTaskType]);
+  const [selectedMode, setSelectedMode] = useState<"beginner" | "exam" | "diagnostic" | "revision">("beginner");
+  const [expandedTaskType, setExpandedTaskType] = useState<string | null>(requestedTaskType);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<"all" | "easy" | "medium" | "hard">("all");
+  const autoStartRequested = new URLSearchParams(window.location.search).get("start") === "1";
+  const hasAutoStartedTask = useRef(false);
 
   const { data: questions, isLoading } = trpc.questions.list.useQuery({
     section: activeSection as any,
     limit: 100,
   });
 
+  // Keep the learner-facing module isolated even if an imported or cached
+  // question record has a mismatched section/task-type combination.
+  const sectionQuestions = useMemo(
+    () => (questions ?? []).filter(question => isQuestionInPracticeSection(
+      question,
+      activeSection as "speaking" | "writing" | "reading" | "listening",
+    )),
+    [activeSection, questions],
+  );
+
   const createSession = trpc.sessions.create.useMutation();
 
   const startPractice = async (questionId: number, taskType: string) => {
+    if (selectedMode === "exam") {
+      window.location.href = "/mock-test";
+      return;
+    }
+    const dedicatedRoute = getDedicatedPracticeModeRoute(selectedMode);
+    if (dedicatedRoute) {
+      window.location.href = dedicatedRoute;
+      return;
+    }
+
     try {
       const session = await createSession.mutateAsync({
         sessionType: "section_practice",
         section: activeSection as any,
         mode: selectedMode,
         totalQuestions: 1,
+        targetTaskType: taskType,
+        targetQuestionId: questionId,
       });
-      window.location.href = `/session/${session.id}?questionId=${questionId}&taskType=${taskType}&mode=${selectedMode}`;
-    } catch {
-      toast.error("Failed to start practice session");
+      const firstPlanned = session.questionPlan?.[0] as { questionId?: number; taskType?: string } | undefined;
+      const targetQId = firstPlanned?.questionId ?? questionId;
+      const targetTask = firstPlanned?.taskType ?? taskType;
+      window.location.href = `/session/${session.id}?questionId=${targetQId}&taskType=${targetTask}&mode=${selectedMode}`;
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to start practice session");
     }
   };
 
-  const startRandomPractice = async (taskType: string) => {
-    const taskQs = groupedByTaskType?.[taskType];
+  const startRandomPractice = async (taskType: string, difficulty = selectedDifficulty) => {
+    const taskQs = groupedByTaskType?.[taskType]?.filter(question => difficulty === "all" || question.difficulty === difficulty);
     if (!taskQs || taskQs.length === 0) return;
     const randomQ = taskQs[Math.floor(Math.random() * taskQs.length)];
     await startPractice(randomQ.id, taskType);
   };
 
-  const groupedByTaskType = questions?.reduce((acc, q) => {
-    if (!acc[q.taskType]) acc[q.taskType] = [];
-    acc[q.taskType].push(q);
-    return acc;
-  }, {} as Record<string, typeof questions>);
+  const groupedByTaskType = useMemo(() => {
+    if (!questions) return undefined;
+    return sectionQuestions.reduce((acc, q) => {
+      if (!acc[q.taskType]) acc[q.taskType] = [];
+      acc[q.taskType].push(q);
+      return acc;
+    }, {} as Record<string, typeof questions>);
+  }, [questions, sectionQuestions]);
+
+  const orderedTaskGroups = useMemo(() => {
+    if (!groupedByTaskType) return [];
+    const order = taskTypeOrder[activeSection] || [];
+    return Object.entries(groupedByTaskType).sort(([taskTypeA], [taskTypeB]) => {
+      const indexA = order.indexOf(taskTypeA);
+      const indexB = order.indexOf(taskTypeB);
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+    });
+  }, [activeSection, groupedByTaskType]);
+
+  const autoStartTaskAvailable = Boolean(requestedTaskType && groupedByTaskType?.[requestedTaskType]?.length);
+  const autoStartTaskLabel = taskTypeInfo[requestedTaskType ?? ""]?.label ?? requestedTaskType?.replace(/_/g, " ") ?? "selected task";
+
+  useEffect(() => {
+    if (!autoStartRequested || hasAutoStartedTask.current || isLoading || !requestedTaskType || !groupedByTaskType) return;
+    const taskQuestions = groupedByTaskType[requestedTaskType];
+    if (!taskQuestions?.length) return;
+    hasAutoStartedTask.current = true;
+    void startPractice(taskQuestions[Math.floor(Math.random() * taskQuestions.length)].id, requestedTaskType);
+  }, [autoStartRequested, groupedByTaskType, isLoading, requestedTaskType]);
 
   const activeSectionInfo = sections.find(s => s.id === activeSection)!;
 
+  if (autoStartRequested && (isLoading || (autoStartTaskAvailable && (!hasAutoStartedTask.current || createSession.isPending)))) {
+    return (
+      <PTELayout title="Practice">
+        <div className="min-h-[45vh] flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <div className="mx-auto h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+            <p className="text-sm font-semibold text-foreground">Opening {autoStartTaskLabel}…</p>
+            <p className="text-xs text-muted-foreground">Taking you directly to a focused practice question.</p>
+          </div>
+        </div>
+      </PTELayout>
+    );
+  }
+
   return (
     <PTELayout title="Practice">
-      <div className="max-w-4xl space-y-5">
-
-        {/* Section tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {sections.map(({ id, label, icon: Icon, color, textColor, borderColor, bgLight, description }, i) => (
-            <motion.button
-              key={id}
-              onClick={() => { setActiveSection(id); setExpandedTaskType(null); }}
-              className={`flex flex-col items-start gap-1.5 p-3.5 rounded-xl border-2 transition-all text-left ${
-                activeSection === id
-                  ? `${borderColor} ${bgLight} shadow-sm`
-                  : "border-transparent bg-card hover:bg-muted"
-              }`}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.06, duration: 0.3 }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <div className={`w-8 h-8 rounded-lg ${color} flex items-center justify-center`}>
-                <Icon className="w-4 h-4 text-white" />
-              </div>
-              <div>
-                <p className={`text-sm font-semibold ${activeSection === id ? textColor : "text-foreground"}`}>{label}</p>
-                <p className="text-xs text-muted-foreground leading-tight">{description}</p>
-              </div>
-            </motion.button>
-          ))}
-        </div>
+      <div className={PRACTICE_CONTENT_CLASS}>
 
         {/* Mode selector */}
         <div className="bg-card border border-border rounded-xl p-4">
@@ -409,20 +466,16 @@ export default function Practice() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25 }}
             >
-              {Object.entries(groupedByTaskType)
-                .sort(([taskTypeA], [taskTypeB]) => {
-                  const order = SECTION_TASK_ORDER[activeSection] || [];
-                  const indexA = order.indexOf(taskTypeA);
-                  const indexB = order.indexOf(taskTypeB);
-                  return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
-                })
-                .map(([taskType, taskQuestions], idx) => {
+              {orderedTaskGroups.map(([taskType, taskQuestions], idx) => {
                 const info = taskTypeInfo[taskType] || {
                   label: taskType, description: "", time: "—",
                   tips: "", scoring: "", difficulty: "Medium", weight: "Medium Impact"
                 };
                 const isExpanded = expandedTaskType === taskType;
-                const totalQ = taskQuestions.length;
+                const visibleTaskQuestions = selectedDifficulty === "all"
+                  ? taskQuestions
+                  : taskQuestions.filter(question => question.difficulty === selectedDifficulty);
+                const totalQ = visibleTaskQuestions.length;
 
                 return (
                   <motion.div
@@ -508,26 +561,50 @@ export default function Practice() {
                               </div>
                             </div>
 
+                            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-teal-100 bg-teal-50/50 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-teal-800">Prepare before you start</p>
+                                <p className="text-[11px] text-teal-700/80">Review the task strategy, templates, and common mistakes.</p>
+                              </div>
+                              <TaskStudyResourceModal taskType={taskType} />
+                            </div>
+
                             {/* Quick start button */}
                             <div className="flex items-center justify-between mt-3 mb-2">
-                              <p className="text-xs font-semibold text-foreground">
-                                {totalQ} Practice Questions
-                              </p>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => startRandomPractice(taskType)}
-                                disabled={createSession.isPending}
-                                className="text-xs gap-1.5 border-teal-300 text-teal-700 hover:bg-teal-50"
-                              >
-                                <Zap className="w-3 h-3" />
-                                Random Question
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-semibold text-foreground">
+                                  {totalQ} Practice Questions
+                                </p>
+                                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <span className="sr-only">Question difficulty</span>
+                                  <select
+                                    value={selectedDifficulty}
+                                    onChange={(event) => setSelectedDifficulty(event.target.value as "all" | "easy" | "medium" | "hard")}
+                                    className="h-8 rounded-md border border-teal-200 bg-background px-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                                    aria-label="Choose question difficulty"
+                                  >
+                                    <option value="all">All difficulties</option>
+                                    <option value="easy">Easy</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="hard">Hard</option>
+                                  </select>
+                                </label>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => startRandomPractice(taskType)}
+                                  disabled={createSession.isPending || visibleTaskQuestions.length === 0}
+                                  className="text-xs gap-1.5 border-teal-300 text-teal-700 hover:bg-teal-50"
+                                >
+                                  <Zap className="w-3 h-3" />
+                                  Random Question
+                                </Button>
+                              </div>
                             </div>
 
                             {/* Question list */}
                             <div className="space-y-1.5">
-                              {taskQuestions.map((q, qIdx) => (
+                              {visibleTaskQuestions.map((q, qIdx) => (
                                 <motion.div
                                   key={q.id}
                                   initial={{ opacity: 0, x: -8 }}
@@ -575,6 +652,11 @@ export default function Practice() {
                                   </div>
                                 </motion.div>
                               ))}
+                              {visibleTaskQuestions.length === 0 && (
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                                  No {selectedDifficulty} questions are available for this task yet. Choose another difficulty.
+                                </p>
+                              )}
                             </div>
                           </div>
                         </motion.div>

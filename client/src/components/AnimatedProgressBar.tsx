@@ -39,15 +39,22 @@ export function AnimatedProgressBar({
       <div
         className={`w-full rounded-full overflow-hidden ${bgColor}`}
         style={{ height }}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-valuenow={Math.min(max, Math.max(0, value))}
+        aria-label={label || "Progress"}
       >
         <motion.div
           className={`h-full rounded-full ${color}`}
           initial={{ width: "0%" }}
           animate={isInView ? { width: `${pct}%` } : { width: "0%" }}
           transition={{
-            duration: 0.9,
+            type: "spring",
+            stiffness: 140,
+            damping: 20,
+            mass: 0.8,
             delay,
-            ease: [0.25, 0.46, 0.45, 0.94],
           }}
         />
       </div>

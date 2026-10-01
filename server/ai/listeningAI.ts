@@ -19,6 +19,8 @@
  */
 
 import { invokeLLM } from "../_core/llm";
+import { PTE_SUBJECTIVE_CALIBRATION_ANCHORS } from "../../shared/pteCalibrationAnchors";
+import { normalizeTaskType } from "../../shared/taskTypeAliases";
 
 // ─── Deterministic Scoring Utilities ─────────────────────────────────────────
 
@@ -77,13 +79,13 @@ function countSpellingErrors(text: string): { count: number; examples: string[] 
  * Official Pearson method: 1 point per correctly spelled word (position-independent).
  * Words are matched by position in the sentence.
  */
-function computeWFDScore(originalSentence: string, userResponse: string): {
+function computeWFDScore(originalSentence: string | null | undefined, userResponse: string | null | undefined): {
   rawScore: number;
   maxRawScore: number;
   wordResults: Array<{ original: string; user: string; isCorrect: boolean; errorType: string }>;
 } {
-  const originalWords = originalSentence.trim().split(/\s+/).filter(Boolean);
-  const userWords = userResponse.trim().split(/\s+/).filter(Boolean);
+  const originalWords = (originalSentence || "").trim().split(/\s+/).filter(Boolean);
+  const userWords = (userResponse || "").trim().split(/\s+/).filter(Boolean);
 
   const wordResults: Array<{ original: string; user: string; isCorrect: boolean; errorType: string }> = [];
   let rawScore = 0;
@@ -393,6 +395,7 @@ ${preProcessing}
 ${LISTENING_SCORING_RULES}
 
 ${SST_CALIBRATION_ANCHORS}
+${PTE_SUBJECTIVE_CALIBRATION_ANCHORS}
 
 ${LISTENING_STRATEGY_COACHING}
 
@@ -817,7 +820,7 @@ export async function scoreListeningTask(params: {
   summaryOptions?: string[];
   blanks?: Array<{ position: number; correctWord: string; userWord: string }>;
 }): Promise<ListeningScoreResult> {
-  const { taskType } = params;
+  const taskType = normalizeTaskType(params.taskType);
 
   const correctAns = Array.isArray(params.correctAnswer)
     ? params.correctAnswer[0]
@@ -847,12 +850,13 @@ export async function scoreListeningTask(params: {
         userSummary: userAns,
       });
 
-    case "listening_fill_blanks":
+    case "fill_blanks_listening":
       return scoreListeningFillBlanks({
         transcript: params.transcript || "",
         blanks: params.blanks || [],
       });
 
+    case "multiple_choice_single":
     case "multiple_choice_single_listening":
     case "select_missing_word": {
       // Deterministic scoring
@@ -884,6 +888,7 @@ export async function scoreListeningTask(params: {
       };
     }
 
+    case "multiple_choice_multiple":
     case "multiple_choice_multiple_listening": {
       // Deterministic scoring: +1/-1, min 0
       const correctAnswers = Array.isArray(params.correctAnswer)

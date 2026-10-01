@@ -6,6 +6,7 @@ export type PracticeTaskLink = {
   taskType?: string;
   section?: PracticeSection;
   href?: string;
+  autoStart?: boolean;
 };
 
 /**
@@ -15,7 +16,8 @@ export type PracticeTaskLink = {
  */
 export function getPracticeTaskUrl(item: PracticeTaskLink): string {
   if (item.taskType && item.section) {
-    return `/practice/${item.section}?taskType=${encodeURIComponent(item.taskType)}`;
+    const startSuffix = item.autoStart ? "&start=1" : "";
+    return `/practice/${item.section}?taskType=${encodeURIComponent(item.taskType)}${startSuffix}`;
   }
   return item.href || "/practice";
 }

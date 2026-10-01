@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TrpcContext } from "./_core/context";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -16,7 +17,7 @@ import {
   computeSm2, scoreToRating, getIntervalPreviews, getRatingLabel, type SrsRating,
 } from "./sm2";
 import {
-  scoreWritingTask, scoreSpeakingTask, scoreObjectiveTask,
+  scoreObjectiveTask,
   generateDiagnosticFeedback, normalizeToPTE,
 } from "./scoring";
 import { generateTaskFeedback, generateCoachingPlan, generateMicroFeedback } from "./aiCoach";
@@ -26,6 +27,15 @@ import { notifyOwner } from "./_core/notification";
 import { aiScoringRouter } from "./routers/aiScoringRouter";
 import { paymentRouter } from "./routers/paymentRouter";
 import { systemAdminRouter } from "./routers/systemAdminRouter";
+import { adminRouter } from "./routers/adminRouter";
+import { navigationRouter } from "./routers/navigationRouter";
+import { hasRequiredQuestionContent, hasScoreableResponse } from "@shared/pteValidation";
+import { isQuestionAllowedInSession } from "./sessionOwnership";
+import { buildSessionTaskPlan } from "@shared/sessionPlanner";
+import { filterScoredSessionResponses, selectLatestPlannedResponses } from "./sessionAggregation";
+import { normalizeTaskType } from "@shared/taskTypeAliases";
+import { shouldApplyImmediateObjectiveScore } from "./responseScoringPolicy";
+import { normalizeOptionValues } from "./optionValueNormalization";
 
 // Questions router
 const questionsRouter = router({
@@ -51,6 +61,12 @@ const questionsRouter = router({
   count: publicProcedure.query(async () => {
     return getQuestionsCount();
   }),
+
+  getByTaskType: publicProcedure
+    .input(z.object({ taskType: z.string() }))
+    .query(async ({ input }) => {
+      return getQuestions({ taskType: input.taskType });
+    }),
 });
 
 // Sessions router
@@ -61,15 +77,70 @@ const sessionsRouter = router({
       section: z.enum(["speaking", "writing", "reading", "listening", "full"]).optional(),
       mode: z.enum(["beginner", "exam", "diagnostic", "revision"]).default("exam"),
       totalQuestions: z.number().default(0),
+      targetTaskType: z.string().optional(),
+      targetQuestionId: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const targetQuestion = input.targetQuestionId
+        ? await getQuestionById(input.targetQuestionId)
+        : undefined;
+      if (input.targetQuestionId && !targetQuestion) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "The selected practice question was not found." });
+      }
+      if (input.mode === "exam" && input.targetQuestionId && input.sessionType === "section_practice") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Exam mode is available only through a mock or sectional test." });
+      }
+      if (input.mode === "exam" && input.sessionType === "section_practice" && input.totalQuestions < 2) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Exam mode requires a multi-question sectional test." });
+      }
+      // Allow flexible section matching or fallback to targetQuestion.section if needed
+      const effectiveSection = input.section && input.section !== "full" ? input.section : targetQuestion?.section ?? "speaking";
+      if (targetQuestion && targetQuestion.section !== effectiveSection) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The selected question does not belong to the selected practice section." });
+      }
+
+      const requestedTaskType = input.targetTaskType ?? targetQuestion?.taskType;
+      const canonicalTargetTaskType = requestedTaskType ? normalizeTaskType(requestedTaskType) : undefined;
+      if (targetQuestion && canonicalTargetTaskType && normalizeTaskType(targetQuestion.taskType) !== canonicalTargetTaskType) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The selected question does not match the selected task type." });
+      }
+
+      const plannedTasks = buildSessionTaskPlan({
+        ...input,
+        targetTaskType: canonicalTargetTaskType,
+      });
+      const plannedQuestions = (await Promise.all(
+        plannedTasks.map(async (task, index) => {
+          const isTarget = index === 0 && targetQuestion && task.section === targetQuestion.section && normalizeTaskType(task.taskType) === normalizeTaskType(targetQuestion.taskType);
+          let candidates = isTarget
+            ? [targetQuestion]
+            : await getQuestions({ section: task.section, taskType: task.taskType, limit: 10 });
+          if (candidates.length === 0) {
+            candidates = await getQuestions({ section: task.section, limit: 10 });
+          }
+          const question = candidates[0];
+          return question ? { questionId: question.id, taskType: normalizeTaskType(question.taskType), section: question.section } : null;
+        }),
+      )).filter((question): question is NonNullable<typeof question> => question !== null);
+
+      if (input.sessionType !== "revision" && plannedQuestions.length === 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No questions are available for this mode." });
+      }
+
+      const {
+        targetTaskType: _targetTaskType,
+        targetQuestionId: _targetQuestionId,
+        ...sessionInput
+      } = input;
       const id = await createSession({
         userId: ctx.user.id,
-        ...input,
+        ...sessionInput,
         section: input.section || "full",
+        totalQuestions: plannedQuestions.length || input.totalQuestions,
+        questionPlan: plannedQuestions,
         status: "in_progress",
       });
-      return { id };
+      return { id, questionPlan: plannedQuestions };
     }),
 
   getById: protectedProcedure
@@ -79,7 +150,50 @@ const sessionsRouter = router({
       if (!session || session.userId !== ctx.user.id) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      return session;
+      let plan = session.questionPlan;
+      if (typeof plan === "string") {
+        try {
+          plan = JSON.parse(plan);
+        } catch {
+          plan = [];
+        }
+      }
+      return {
+        ...session,
+        questionPlan: Array.isArray(plan) ? plan : [],
+      };
+    }),
+
+  pause: protectedProcedure
+    .input(z.object({ id: z.number(), pausedIndex: z.number().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await getSessionById(input.id);
+      if (!session || session.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (session.sessionType !== "mock_test" && session.sessionType !== "section_practice") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Pause and save progress is only available for Mock Tests and Sectional Tests." });
+      }
+      await updateSession(input.id, {
+        status: "paused",
+        pausedAt: new Date(),
+        pausedIndex: input.pausedIndex ?? 0,
+      });
+      return { success: true };
+    }),
+
+  resume: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await getSessionById(input.id);
+      if (!session || session.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      await updateSession(input.id, {
+        status: "in_progress",
+        pausedAt: null,
+      });
+      return { success: true, pausedIndex: session.pausedIndex ?? 0 };
     }),
 
   complete: protectedProcedure
@@ -91,39 +205,46 @@ const sessionsRouter = router({
       }
 
       const responses = await getSessionResponses(input.id);
+      const plan = Array.isArray(session.questionPlan) ? session.questionPlan as Array<{ questionId: number }> : [];
+      const effectiveResponses = selectLatestPlannedResponses(responses, plan);
+      const scoredResponses = filterScoredSessionResponses(effectiveResponses);
 
-      // Calculate aggregate scores
-      const speakingResponses = responses.filter(r => r.pronunciationScore !== null);
-      const writingResponses = responses.filter(r => r.languageScore !== null && r.pronunciationScore === null);
-      const allScored = responses.filter(r => r.normalizedScore !== null);
+      // Calculate aggregate scores from the latest attempt for each planned question.
+      const speakingResponses = scoredResponses.filter(r => r.pronunciationScore !== null);
+      const writingResponses = scoredResponses.filter(r => r.languageScore !== null && r.pronunciationScore === null);
+      const allScored = scoredResponses.filter(r => r.normalizedScore !== null);
 
       const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : undefined;
 
-      const speakingScore = avg(speakingResponses.map(r => r.normalizedScore || 50));
-      const writingScore = avg(writingResponses.map(r => r.normalizedScore || 50));
-      const overallScore = avg(allScored.map(r => r.normalizedScore || 50));
+      const speakingScore = avg(speakingResponses.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
+      const writingScore = avg(writingResponses.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
+      const overallScore = avg(allScored.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
 
       // Aggregate enabling skills
-      const grammarScore = avg(responses.filter(r => r.languageScore).map(r => normalizeToPTE((r.languageScore || 0.5) * 100)));
-      const pronunciationScore = avg(speakingResponses.map(r => normalizeToPTE((r.pronunciationScore || 0.5) * 100)));
-      const fluencyScore = avg(speakingResponses.map(r => normalizeToPTE((r.fluencyScore || 0.5) * 100)));
+      const grammarScore = avg(scoredResponses.filter(r => r.languageScore).map(r => normalizeToPTE((r.languageScore || 0.5) * 100)));
+      const pronunciationScore = avg(speakingResponses.map(r => r.pronunciationScore)
+        .filter((score): score is number => typeof score === "number")
+        .map(score => normalizeToPTE(score * 100)));
+      const fluencyScore = avg(speakingResponses.map(r => r.fluencyScore)
+        .filter((score): score is number => typeof score === "number")
+        .map(score => normalizeToPTE(score * 100)));
 
       const updateData = {
         status: "completed" as const,
         completedAt: new Date(),
-        answeredQuestions: responses.length,
-        overallScore: overallScore || 50,
-        speakingScore: speakingScore,
-        writingScore: writingScore,
-        grammarScore: grammarScore,
-        pronunciationScore: pronunciationScore,
-        oralFluencyScore: fluencyScore,
+        answeredQuestions: effectiveResponses.length,
+        overallScore: overallScore ?? null,
+        speakingScore: speakingScore ?? null,
+        writingScore: writingScore ?? null,
+        grammarScore: grammarScore ?? null,
+        pronunciationScore: pronunciationScore ?? null,
+        oralFluencyScore: fluencyScore ?? null,
       };
 
       await updateSession(input.id, updateData);
 
       // Generate diagnostic feedback
-      if (overallScore) {
+      if (overallScore !== undefined) {
         const diagnostic = await generateDiagnosticFeedback({
           overallScore: overallScore,
           speakingScore,
@@ -162,29 +283,36 @@ const sessionsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       const responses = await getSessionResponses(input.id);
+      const scoredResponses = filterScoredSessionResponses(responses);
       // Build enabling skills from response data
       const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : undefined;
-      const spk = responses.filter(r => r.pronunciationScore !== null);
-      const wrt = responses.filter(r => r.languageScore !== null && r.pronunciationScore === null);
-      const allScored = responses.filter(r => r.normalizedScore !== null);
+      const spk = scoredResponses.filter(r => r.pronunciationScore !== null);
+      const wrt = scoredResponses.filter(r => r.languageScore !== null && r.pronunciationScore === null);
+      const allScored = scoredResponses.filter(r => r.normalizedScore !== null);
       const enablingSkills: Record<string, number> = {};
-      const grammar = avg(responses.filter(r => r.languageScore).map(r => normalizeToPTE((r.languageScore || 0.5) * 100)));
-      const pronunciation = avg(spk.map(r => normalizeToPTE((r.pronunciationScore || 0.5) * 100)));
-      const fluency = avg(spk.map(r => normalizeToPTE((r.fluencyScore || 0.5) * 100)));
-      const vocab = avg(responses.filter(r => r.contentScore).map(r => normalizeToPTE((r.contentScore || 0.5) * 100)));
+      const grammar = avg(scoredResponses.filter(r => r.languageScore).map(r => normalizeToPTE((r.languageScore || 0.5) * 100)));
+      const pronunciation = avg(spk.map(r => r.pronunciationScore)
+        .filter((score): score is number => typeof score === "number")
+        .map(score => normalizeToPTE(score * 100)));
+      const fluency = avg(spk.map(r => r.fluencyScore)
+        .filter((score): score is number => typeof score === "number")
+        .map(score => normalizeToPTE(score * 100)));
+      const vocab = avg(scoredResponses.map(r => r.contentScore)
+        .filter((score): score is number => typeof score === "number")
+        .map(score => normalizeToPTE(score * 100)));
       if (grammar) enablingSkills.grammar = grammar;
       if (pronunciation) enablingSkills.pronunciation = pronunciation;
       if (fluency) enablingSkills.oral_fluency = fluency;
       if (vocab) enablingSkills.vocabulary = vocab;
-      const readingResp = responses.filter(r => r.question?.section === "reading");
-      const listeningResp = responses.filter(r => r.question?.section === "listening");
-      const readingScore = avg(readingResp.filter(r => r.normalizedScore).map(r => r.normalizedScore!));
-      const listeningScore = avg(listeningResp.filter(r => r.normalizedScore).map(r => r.normalizedScore!));
+      const readingResp = scoredResponses.filter(r => r.question?.section === "reading");
+      const listeningResp = scoredResponses.filter(r => r.question?.section === "listening");
+      const readingScore = avg(readingResp.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
+      const listeningScore = avg(listeningResp.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
       if (readingScore) enablingSkills.reading_skills = readingScore;
       if (listeningScore) enablingSkills.listening_skills = listeningScore;
-      const speakingScore = avg(spk.map(r => r.normalizedScore!).filter(Boolean));
-      const writingScore = avg(wrt.map(r => r.normalizedScore!).filter(Boolean));
-      const overallScore = avg(allScored.map(r => r.normalizedScore!));
+      const speakingScore = avg(spk.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
+      const writingScore = avg(wrt.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
+      const overallScore = avg(allScored.map(r => r.normalizedScore).filter((score): score is number => typeof score === "number"));
       const diagnostic = session.actionPlan ? `${session.actionPlan}` : null;
       const plan = session.weakSkills ? `Focus on improving: ${Array.isArray(session.weakSkills) ? session.weakSkills.join(", ") : session.weakSkills}` : null;
       return {
@@ -230,13 +358,48 @@ const responsesRouter = router({
       timeTaken: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const question = await getQuestionById(input.questionId);
+      const session = await getSessionById(input.sessionId);
+      if (!session || session.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const sessionPlan = Array.isArray(session.questionPlan) ? session.questionPlan as Array<{ questionId: number; taskType?: string; section?: string }> : [];
+      let resolvedQuestionId = input.questionId;
+      if (!resolvedQuestionId || resolvedQuestionId <= 0) {
+        if (sessionPlan.length > 0 && sessionPlan[0]?.questionId) {
+          resolvedQuestionId = sessionPlan[0].questionId;
+        } else {
+          const allQs = await getQuestions({ limit: 1 });
+          if (allQs.length > 0 && allQs[0]?.id) {
+            resolvedQuestionId = allQs[0].id;
+          }
+        }
+      }
+      if (!resolvedQuestionId || resolvedQuestionId <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A valid question is required before submitting." });
+      }
+      const question = await getQuestionById(resolvedQuestionId);
       if (!question) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!isQuestionAllowedInSession(session.section, question.section)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This question does not belong to the selected practice section." });
+      }
+      if (sessionPlan.length > 0 && !sessionPlan.some((item: { questionId: number }) => item.questionId === resolvedQuestionId)) {
+        sessionPlan.push({ questionId: resolvedQuestionId, taskType: question.taskType, section: question.section });
+        await updateSession(input.sessionId, { questionPlan: sessionPlan });
+      }
+
+      const questionCheck = hasRequiredQuestionContent(question);
+      if (!questionCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: questionCheck.reason });
+      }
+      const responseCheck = hasScoreableResponse(question, input);
+      if (!responseCheck.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: responseCheck.reason });
+      }
 
       const responseId = await createResponse({
         sessionId: input.sessionId,
         userId: ctx.user.id,
-        questionId: input.questionId,
+        questionId: resolvedQuestionId,
         responseText: input.responseText,
         audioUrl: input.audioUrl,
         selectedOptions: input.selectedOptions,
@@ -246,27 +409,7 @@ const responsesRouter = router({
       // Score based on task type
       let scoreData: Partial<typeof import("../drizzle/schema").userResponses.$inferInsert> = {};
 
-      if (question.section === "writing" && input.responseText) {
-        const result = await scoreWritingTask({
-          taskType: question.taskType as any,
-          prompt: question.prompt || "",
-          content: question.content || undefined,
-          response: input.responseText,
-          wordLimit: question.wordLimit || undefined,
-        });
-        scoreData = {
-          contentScore: result.contentScore,
-          formScore: result.formScore,
-          languageScore: result.languageScore,
-          totalScore: result.totalScore,
-          normalizedScore: result.normalizedScore,
-          feedback: result.feedback,
-          strengths: result.strengths,
-          improvements: result.improvements,
-          grammarErrors: result.grammarErrors,
-          vocabularyFeedback: result.vocabularyFeedback,
-        };
-      } else if (question.section === "speaking" && input.audioUrl) {
+      if (question.section === "speaking" && input.audioUrl) {
         // Transcribe audio first
         let transcription = "";
         try {
@@ -278,35 +421,18 @@ const responsesRouter = router({
           transcription = input.responseText || "";
         }
 
-        if (transcription) {
-          const result = await scoreSpeakingTask({
-            taskType: question.taskType as any,
-            prompt: question.prompt || undefined,
-            originalText: question.content || undefined,
-            transcription,
-          });
-          scoreData = {
-            contentScore: result.contentScore,
-            formScore: result.formScore,
-            languageScore: result.languageScore,
-            pronunciationScore: result.pronunciationScore,
-            fluencyScore: result.fluencyScore,
-            totalScore: result.totalScore,
-            normalizedScore: result.normalizedScore,
-            feedback: result.feedback,
-            strengths: result.strengths,
-            improvements: result.improvements,
-            grammarErrors: result.grammarErrors,
-            vocabularyFeedback: result.vocabularyFeedback,
-            pronunciationFeedback: result.pronunciationFeedback,
-            fluencyFeedback: result.fluencyFeedback,
-          };
-        }
-      } else if (["reading", "listening"].includes(question.section)) {
+        // Speaking scores are intentionally left pending here. The section-specific
+        // Pearson-calibrated AI engine scores the saved transcription below.
+      } else if (shouldApplyImmediateObjectiveScore(question.section, question.taskType)) {
+        const normalizedSelections = normalizeOptionValues(
+          question.options,
+          question.correctAnswer,
+          input.selectedOptions,
+        );
         const result = scoreObjectiveTask({
           taskType: question.taskType,
-          correctAnswer: question.correctAnswer ?? "",
-          userAnswer: input.selectedOptions ?? input.responseText ?? "",
+          correctAnswer: normalizedSelections.correctAnswers,
+          userAnswer: input.selectedOptions ? normalizedSelections.selectedOptions : input.responseText ?? "",
         });
         scoreData = {
           normalizedScore: result.normalizedScore,
@@ -318,8 +444,7 @@ const responsesRouter = router({
 
       await updateResponse(responseId, scoreData);
 
-      // Update session answered count
-      const session = await getSessionById(input.sessionId);
+      // Update session answered count only after a validated, scoreable response.
       if (session) {
         await updateSession(input.sessionId, {
           answeredQuestions: (session.answeredQuestions || 0) + 1,
@@ -689,6 +814,8 @@ export const appRouter = router({
   aiScoring: aiScoringRouter,
   payment: paymentRouter,
   systemAdmin: systemAdminRouter,
+  admin: adminRouter,
+  navigation: navigationRouter,
 });
 
 export type AppRouter = typeof appRouter;

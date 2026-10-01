@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, RotateCcw, SkipForward, Bookmark } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, Bookmark } from "lucide-react";
 
 interface NavigationControlsProps {
   currentQuestion: number;
@@ -7,7 +7,6 @@ interface NavigationControlsProps {
   onPrevious?: () => void;
   onNext?: () => void;
   onRedo?: () => void;
-  onSkip?: () => void;
   onBookmark?: () => void;
   isBookmarked?: boolean;
   disabled?: boolean;
@@ -19,7 +18,6 @@ export default function NavigationControls({
   onPrevious,
   onNext,
   onRedo,
-  onSkip,
   onBookmark,
   isBookmarked = false,
   disabled = false,
@@ -58,17 +56,6 @@ export default function NavigationControls({
         >
           Next
           <ChevronRight className="w-4 h-4" />
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSkip}
-          disabled={disabled || !onSkip}
-          className="gap-1 text-muted-foreground"
-        >
-          <SkipForward className="w-4 h-4" />
-          Skip Question
         </Button>
 
         <Button
