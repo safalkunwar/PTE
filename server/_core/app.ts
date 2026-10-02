@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type Request, type Response } from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -19,7 +19,7 @@ export function createApp(): express.Express {
   app.post(
     "/api/upload-audio",
     express.raw({ type: "audio/*", limit: "20mb" }),
-    async (req, res) => {
+    async (req: Request, res: Response) => {
       try {
         const { sdk } = await import("./sdk");
         let user: import("./sdk").AuthenticatedUser | null = null;
