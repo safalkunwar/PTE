@@ -1188,7 +1188,6 @@ var init_storage = __esm({
 
 // server/api.ts
 import "dotenv/config";
-import serverless from "serverless-http";
 
 // server/_core/app.ts
 import express from "express";
@@ -9564,7 +9563,9 @@ function createApp() {
 
 // server/api.ts
 var app = createApp();
-var api_default = serverless(app);
+function handler(req, res) {
+  app(req, res);
+}
 export {
-  api_default as default
+  handler as default
 };

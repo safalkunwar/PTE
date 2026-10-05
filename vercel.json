@@ -11,7 +11,7 @@
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/entry.ts" },
+    { "source": "/api/(.*)", "destination": "/api/entry.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
