@@ -105,3 +105,19 @@ Removed Skip Question from the learner session navigation because it duplicated 
 ## 2026-10-01 — PremiumHeader Direct Task Navigation Fix
 
 Fixed the actual persistent PremiumHeader task menu so task clicks include `start=1` and launch the selected task session directly. Previously, the menu used the section Practice route without the auto-start flag, which caused learners to land on the full task list and scroll. Added regression coverage for the Retell Lecture route.
+
+## 2026-10-04 — Removed Duplicate Practice Module Progress Row
+
+Removed the redundant Speaking/Writing/Reading/Listening progress row from the Practice session header, including displays such as `0/1` and `0/0`. The global top navigation remains the single module/task navigation surface; the session header now shows only the focused task, difficulty, question position, and applicable timer. Removed the unused module-progress query and state from PracticeSession.
+
+## 2026-10-04 — Next and Redo Interaction Repair
+
+Next is now enabled immediately after a question is viewed, including focused one-question practice sessions. In a multi-question session it advances through the loaded plan; at the end of ordinary practice it opens another focused question of the same task, while the final exam question gives clear submit guidance. Redo now resets response fields, timing, scoring state, and remounts speaking controls so preparation/recording starts from the beginning.
+
+## 2026-10-04 — Navbar Task List Landing
+
+Changed task clicks in both PremiumHeader and GlobalModuleNavbar to open `/practice/:section?taskType=...` without the auto-start flag. Practice uses the task type query to expand the selected task and show its question list, allowing learners to choose a specific question instead of being sent automatically to the first question.
+
+## 2026-10-05 — Admin Panel Reliability Audit
+
+Repaired the administrator workflows that were still presenting incomplete or non-functional behavior. The Users page now reads persisted users through `systemAdmin.listUsers`, supports search, refresh, promote/demote, and suspend/restore actions through protected mutations, and displays real role/status/sign-in data. The Payment Management page now uses persisted payment-revenue analytics rather than activity-log placeholders, including gateway revenue, failed payments, active subscription breakdown, and daily completed revenue. The Question Manager now uploads the selected CSV only when the upload button is pressed, waits correctly for AI generation, supports editing existing questions through a protected update procedure, and exposes the full supported speaking, writing, reading, and listening task catalog. Dead AdminLayout links were replaced with reachable Questions and System Admin destinations, and `/admin` now opens the data-backed dashboard. TypeScript validation, the full 70-file/290-test suite, and the production build passed.

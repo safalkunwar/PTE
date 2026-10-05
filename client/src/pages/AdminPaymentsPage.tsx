@@ -1,174 +1,58 @@
 import { AdminLayout } from "@/components/AdminLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Loader2, CreditCard, CheckCircle, XCircle, Clock } from "lucide-react";
-import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { CheckCircle, XCircle, RefreshCw, TrendingUp } from "lucide-react";
 
 export default function AdminPaymentsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const { data: payments, isLoading } = trpc.systemAdmin.getActivityLogs.useQuery({ limit: 200, offset: 0 });
-
-  const paymentTransactions = (payments || [])
-    .filter((log: any) => log.type?.includes("payment") || log.type?.includes("subscription"))
-    .slice(0, 50);
-
-  const filteredPayments = paymentTransactions.filter(
-    (payment: any) =>
-      payment.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payment.userEmail?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle size={18} className="text-green-600" />;
-      case "failed":
-        return <XCircle size={18} className="text-red-600" />;
-      case "pending":
-        return <Clock size={18} className="text-yellow-600" />;
-      default:
-        return <CreditCard size={18} className="text-gray-600" />;
-    }
-  };
+  const paymentsQuery = trpc.systemAdmin.getPaymentRevenue.useQuery({ days: 90 });
 
   return (
     <AdminLayout>
       <div className="space-y-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Payment Management</h1>
-          <p className="text-gray-600 mt-2">Monitor and manage all payment transactions</p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Payment Management</h1>
+            <p className="text-gray-600 mt-2">Real revenue, gateway, subscription, and failed-payment metrics for the last 90 days.</p>
+          </div>
+          <Button variant="outline" onClick={() => void paymentsQuery.refetch()} disabled={paymentsQuery.isFetching}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${paymentsQuery.isFetching ? "animate-spin" : ""}`} /> Refresh
+          </Button>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Transactions</p>
-                  <p className="text-3xl font-bold mt-2">{paymentTransactions.length}</p>
-                </div>
-                <CreditCard className="w-12 h-12 text-blue-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Successful</p>
-                  <p className="text-3xl font-bold mt-2 text-green-600">
-                    {paymentTransactions.filter((p: any) => p.type?.includes("success")).length}
-                  </p>
-                </div>
-                <CheckCircle className="w-12 h-12 text-green-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Failed</p>
-                  <p className="text-3xl font-bold mt-2 text-red-600">
-                    {paymentTransactions.filter((p: any) => p.type?.includes("failed")).length}
-                  </p>
-                </div>
-                <XCircle className="w-12 h-12 text-red-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search Bar */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Search by email or transaction details..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-              />
+        {paymentsQuery.isError ? (
+          <Card><CardContent className="py-12 text-center text-red-600">Unable to load payment metrics. Please try again.</CardContent></Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Completed revenue</p><p className="text-3xl font-bold mt-2">NPR {(paymentsQuery.data?.totalRevenue ?? 0).toLocaleString()}</p></div><TrendingUp className="w-12 h-12 text-green-500 opacity-30" /></div></CardContent></Card>
+              <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Successful payments</p><p className="text-3xl font-bold mt-2">{(paymentsQuery.data?.revenueByMethod ?? []).reduce((sum, item) => sum + Number(item.count || 0), 0)}</p></div><CheckCircle className="w-12 h-12 text-green-500 opacity-30" /></div></CardContent></Card>
+              <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Failed payments</p><p className="text-3xl font-bold mt-2 text-red-600">{paymentsQuery.data?.failedPayments ?? 0}</p></div><XCircle className="w-12 h-12 text-red-500 opacity-30" /></div></CardContent></Card>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Transactions Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
-            <CardDescription>Latest payment activities</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-3 animate-pulse" aria-busy="true" aria-label="Loading payment transactions">
-                {[1, 2, 3, 4, 5].map((row) => (
-                  <div key={row} className="grid grid-cols-6 gap-4 rounded-lg bg-gray-100 p-4">
-                    {[1, 2, 3, 4, 5, 6].map((cell) => <div key={cell} className="h-4 rounded bg-gray-200" />)}
-                  </div>
-                ))}
-              </div>
-            ) : filteredPayments.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">No transactions found</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">User</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Details</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredPayments.map((payment: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-medium text-gray-900">{payment.userName || "Unknown"}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-gray-600">{payment.userEmail || "N/A"}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
-                            {payment.type || "Payment"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            {getStatusIcon(payment.type)}
-                            <span className="text-sm font-medium text-gray-700">
-                              {payment.type?.includes("success") ? "Completed" : payment.type?.includes("failed") ? "Failed" : "Pending"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-gray-600">{payment.description || "N/A"}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-gray-600">
-                            {new Date(payment.timestamp).toLocaleDateString()}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader><CardTitle>Revenue by gateway</CardTitle><CardDescription>Completed transactions grouped by provider.</CardDescription></CardHeader>
+                <CardContent>
+                  {!paymentsQuery.data?.revenueByMethod.length ? <p className="py-8 text-center text-gray-500">No completed payments found.</p> : <div className="divide-y">{paymentsQuery.data.revenueByMethod.map((item) => <div key={String(item.method)} className="flex items-center justify-between py-3"><span className="font-medium capitalize">{item.method}</span><span className="text-right"><span className="block font-semibold">NPR {Number(item.total || 0).toLocaleString()}</span><span className="text-xs text-gray-500">{Number(item.count || 0)} transactions</span></span></div>)}</div>}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Active subscriptions</CardTitle><CardDescription>Current subscription plan breakdown.</CardDescription></CardHeader>
+                <CardContent>
+                  {!paymentsQuery.data?.subscriptionBreakdown.length ? <p className="py-8 text-center text-gray-500">No active subscriptions found.</p> : <div className="divide-y">{paymentsQuery.data.subscriptionBreakdown.map((item) => <div key={String(item.plan)} className="flex items-center justify-between py-3"><span className="font-medium">{item.plan}</span><span className="text-right"><span className="block font-semibold">{Number(item.count || 0)} users</span><span className="text-xs text-gray-500">MRR NPR {Number(item.totalMrr || 0).toLocaleString()}</span></span></div>)}</div>}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader><CardTitle>Daily completed revenue</CardTitle><CardDescription>Transaction volume over the selected period.</CardDescription></CardHeader>
+              <CardContent>
+                {!paymentsQuery.data?.dailyRevenue.length ? <p className="py-8 text-center text-gray-500">No daily revenue data found.</p> : <div className="overflow-x-auto"><table className="w-full"><thead className="border-b bg-gray-50"><tr><th className="px-4 py-3 text-left text-sm font-semibold">Date</th><th className="px-4 py-3 text-right text-sm font-semibold">Transactions</th><th className="px-4 py-3 text-right text-sm font-semibold">Revenue</th></tr></thead><tbody className="divide-y">{paymentsQuery.data.dailyRevenue.map((day) => <tr key={String(day.date)}><td className="px-4 py-3">{String(day.date)}</td><td className="px-4 py-3 text-right">{Number(day.count || 0)}</td><td className="px-4 py-3 text-right font-medium">NPR {Number(day.total || 0).toLocaleString()}</td></tr>)}</tbody></table></div>}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </AdminLayout>
   );

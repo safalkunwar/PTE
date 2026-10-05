@@ -723,7 +723,8 @@ export default function PracticeSession() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingHasSpeech, setRecordingHasSpeech] = useState<boolean | undefined>(undefined);
   const [isVisualPromptReady, setIsVisualPromptReady] = useState(false);
-  const [startTime] = useState(Date.now());
+  const [startTime, setStartTime] = useState(Date.now);
+  const [redoKey, setRedoKey] = useState(0);
   const [timedOut, setTimedOut] = useState(false);
   const [reorderItems, setReorderItems] = useState<Array<{ id: string; text: string }>>([])
   const [arrangedItems, setArrangedItems] = useState<Array<{ id: string; text: string }>>([])
@@ -742,12 +743,6 @@ export default function PracticeSession() {
     score?: number;
   }>>([]);
   const [bookmarkedQuestions, setBookmarkedQuestions] = useState<Set<number>>(new Set());
-  const [moduleProgress, setModuleProgress] = useState({
-    speaking: { practiced: 0, skipped: 0, undone: 0, total: 0 },
-    writing: { practiced: 0, skipped: 0, undone: 0, total: 0 },
-    reading: { practiced: 0, skipped: 0, undone: 0, total: 0 },
-    listening: { practiced: 0, skipped: 0, undone: 0, total: 0 },
-  });
 
   // Initialize reorder items
   useEffect(() => {
@@ -799,10 +794,6 @@ export default function PracticeSession() {
     { enabled: !!sessionId }
   );
   const bookmarkQuestionMutation = trpc.navigation.bookmarkQuestion.useMutation();
-  const getProgressQuery = trpc.navigation.getProgress.useQuery(
-    { sessionId },
-    { enabled: !!sessionId }
-  );
 
   useEffect(() => {
     const plannedQuestions = getSessionQuestions.data;
@@ -859,21 +850,11 @@ export default function PracticeSession() {
     ...persistedAttempts.filter(response => !localAttempts.some(local => local.id === response.id)),
   ];
 
-  // Update module progress when data loads
-  useEffect(() => {
-    if (getProgressQuery.data) {
-      const { practiced, skipped, undone, total } = getProgressQuery.data;
-      if (question?.section) {
-        setModuleProgress(prev => ({
-          ...prev,
-          [question.section]: { practiced, skipped, undone, total }
-        }));
-      }
-    }
-  }, [getProgressQuery.data, question?.section]);
-
   // Navigation handlers
   const resetCurrentResponse = (showToast = false) => {
+    setStartTime(Date.now());
+    setIsSubmitting(false);
+    setIsAIScoring(false);
     setResult(null);
     setTimedOut(false);
     setTextResponse("");
@@ -907,10 +888,21 @@ export default function PracticeSession() {
 
   const handleNext = () => {
     const nextIndex = getAdjacentQuestionIndex(currentQuestionIndex, navigableQuestions.length, "next");
-    if (nextIndex !== null) goToQuestion(nextIndex);
+    if (nextIndex !== null) {
+      goToQuestion(nextIndex);
+      return;
+    }
+    if (!isValidExamFlow && question?.section && question.taskType) {
+      setLocation(`/practice/${question.section}?taskType=${encodeURIComponent(question.taskType)}&start=1`);
+      return;
+    }
+    if (isValidExamFlow) toast.info("This is the final question. Submit your response to finish the test.");
   };
 
-  const handleRedo = () => resetCurrentResponse(true);
+  const handleRedo = () => {
+    setRedoKey(value => value + 1);
+    resetCurrentResponse(true);
+  };
 
 
   const isPlannedFlow = navigableQuestions.length > 0 || plannedSessionQuestionCount > 0;
@@ -1202,14 +1194,8 @@ export default function PracticeSession() {
 
   return (
     <PTELayout title={question.title}>
-      {/* APEUni-style Header with Module Tabs */}
+      {/* Focused task context header; module navigation is provided globally above. */}
       <PracticeHeader
-        modules={Object.entries(moduleProgress).map(([section, progress]) => ({
-          section: section as "speaking" | "writing" | "reading" | "listening",
-          completed: progress.practiced,
-          total: progress.total,
-        }))}
-        currentSection={question?.section}
         taskType={question.taskType}
         difficulty={question.difficulty}
         questionNumber={currentQuestionIndex + 1}
@@ -1328,7 +1314,7 @@ export default function PracticeSession() {
                 })()}
 
                 <SpeakingTask
-                  key={question.id}
+                  key={`${question.id}-${redoKey}`}
                   taskType={question.taskType}
                   originalText={question.content as string | undefined}
                   imageUrl={question.imageUrl || undefined}

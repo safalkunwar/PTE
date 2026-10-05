@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminLayout } from "@/components/AdminLayout";
 
 import { Upload, Plus, RefreshCw, Trash2, Edit2, FileText } from "lucide-react";
 
 type TaskType = 
+  | "personal_introduction"
   | "read_aloud"
   | "repeat_sentence"
   | "describe_image"
@@ -59,8 +61,9 @@ export default function AdminQuestionManager() {
   });
 
   const generateQuestions = trpc.admin.generateQuestionsAI.useMutation({
-    onSuccess: () => {
-      alert(`${generateCount} questions generated successfully`);
+    onSuccess: (result) => {
+      const partial = result.failed ? ` ${result.failed} failed validation; ${result.count} were saved.` : `${result.count} questions generated successfully.`;
+      alert(partial);
       refetch();
     },
     onError: (error: any) => {
@@ -95,14 +98,44 @@ export default function AdminQuestionManager() {
     },
   });
 
+  const updateQuestion = trpc.admin.updateQuestion.useMutation({
+    onSuccess: () => {
+      alert("Question updated successfully");
+      refetch();
+    },
+    onError: (error: any) => alert(`Error: ${error?.message || "Update failed"}`),
+  });
+
+  const handleEditQuestion = (question: any) => {
+    const title = window.prompt("Question title", question.title || "");
+    if (title === null || !title.trim()) return;
+    const prompt = window.prompt("Prompt / instructions", question.prompt || "");
+    if (prompt === null) return;
+    const content = window.prompt("Main content / passage", question.content || "");
+    if (content === null) return;
+    const correctAnswer = window.prompt("Correct answer", question.correctAnswer || "");
+    if (correctAnswer === null) return;
+    updateQuestion.mutate({
+      questionId: question.id,
+      title: title.trim(),
+      prompt,
+      content,
+      correctAnswer,
+      difficulty: question.difficulty,
+    });
+  };
+
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setCsvFile(file);
-    const fileContent = await file.text();
+  };
+
+  const submitCSVUpload = async () => {
+    if (!csvFile) return;
     uploadCSV.mutate({
-      file: fileContent,
+      file: await csvFile.text(),
       section: selectedSection,
       taskType: selectedTaskType,
     });
@@ -110,17 +143,21 @@ export default function AdminQuestionManager() {
 
   const handleGenerateQuestions = async () => {
     setIsGenerating(true);
-    generateQuestions.mutate({
-      section: selectedSection,
-      taskType: selectedTaskType,
-      difficulty,
-      count: generateCount,
-    });
-    setIsGenerating(false);
+    try {
+      await generateQuestions.mutateAsync({
+        section: selectedSection,
+        taskType: selectedTaskType,
+        difficulty,
+        count: generateCount,
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const taskTypesBySection: Record<Section, TaskType[]> = {
     speaking: [
+      "personal_introduction",
       "read_aloud",
       "repeat_sentence",
       "describe_image",
@@ -142,6 +179,8 @@ export default function AdminQuestionManager() {
     ],
     listening: [
       "summarize_spoken_text",
+      "multiple_choice_single",
+      "multiple_choice_multiple",
       "fill_blanks_listening",
       "highlight_correct_summary",
       "select_missing_word",
@@ -151,7 +190,8 @@ export default function AdminQuestionManager() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <AdminLayout>
+    <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Question Manager</h1>
@@ -228,11 +268,7 @@ export default function AdminQuestionManager() {
                 )}
 
                 <Button
-                  onClick={() => {
-                    if (csvFile) {
-                      setCsvFile(null);
-                    }
-                  }}
+                  onClick={() => void submitCSVUpload()}
                   disabled={!csvFile || uploadCSV.isPending}
                   className="w-full"
                 >
@@ -302,14 +338,17 @@ export default function AdminQuestionManager() {
                       min="1"
                       max="20"
                       value={generateCount}
-                      onChange={(e) => setGenerateCount(parseInt(e.target.value))}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setGenerateCount(Number.isFinite(value) ? Math.min(20, Math.max(1, value)) : 1);
+                      }}
                     />
                   </div>
                 </div>
 
                 <Button
                   onClick={handleGenerateQuestions}
-                  disabled={isGenerating || generateQuestions.isPending}
+                  disabled={isGenerating || generateQuestions.isPending || !Number.isInteger(generateCount) || generateCount < 1}
                   className="w-full"
                 >
                   {isGenerating || generateQuestions.isPending ? (
@@ -515,7 +554,7 @@ export default function AdminQuestionManager() {
                           <p className="text-sm text-muted-foreground">{question.difficulty} • ID: {question.id}</p>
                         </div>
                         <div className="flex gap-2">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleEditQuestion(question)} disabled={updateQuestion.isPending} title="Edit question">
                             <Edit2 className="w-4 h-4" />
                           </Button>
                           <Button
@@ -538,5 +577,6 @@ export default function AdminQuestionManager() {
         </Tabs>
       </div>
     </div>
+    </AdminLayout>
   );
 }

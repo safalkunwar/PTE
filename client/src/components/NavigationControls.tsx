@@ -51,7 +51,7 @@ export default function NavigationControls({
           variant="outline"
           size="sm"
           onClick={onNext}
-          disabled={disabled || !onNext || currentQuestion === totalQuestions}
+          disabled={disabled || !onNext}
           className="gap-1 bg-primary/10 text-primary hover:bg-primary/20"
         >
           Next

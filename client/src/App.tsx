@@ -12,7 +12,6 @@ import Home from "./pages/Home";
 
 // Lazy-load all authenticated pages to reduce initial bundle size
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
@@ -79,7 +78,7 @@ function Router() {
           <Switch>
         <Route path="/" component={Home} />
         <Route path="/dashboard" component={Dashboard} />
-        <Route path="/admin" component={AdminDashboard} />
+        <Route path="/admin" component={AdminDashboardPage} />
         <Route path="/admin/dashboard" component={AdminDashboardPage} />
         <Route path="/admin/users" component={AdminUsersPage} />
         <Route path="/admin/payments" component={AdminPaymentsPage} />

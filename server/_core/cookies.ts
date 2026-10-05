@@ -44,5 +44,5 @@ export function getSessionCookieOptions(
     path: "/",
     sameSite: "none",
     secure: isSecureRequest(req),
-  } as Pick<CookieOptions, "httpOnly" | "path" | "sameSite" | "secure">;
+  };
 }

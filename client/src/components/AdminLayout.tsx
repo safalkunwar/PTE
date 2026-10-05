@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Menu, X, LogOut, Settings, Users, CreditCard, BarChart3, Home, Bell } from "lucide-react";
+import { Menu, X, LogOut, Users, CreditCard, FileText, Shield, Home, Bell } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
@@ -23,8 +23,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { label: "Dashboard", icon: Home, href: "/admin/dashboard" },
     { label: "Users", icon: Users, href: "/admin/users" },
     { label: "Payments", icon: CreditCard, href: "/admin/payments" },
-    { label: "Analytics", icon: BarChart3, href: "/admin/analytics" },
-    { label: "Settings", icon: Settings, href: "/admin/settings" },
+    { label: "Questions", icon: FileText, href: "/admin/questions" },
+    { label: "System Admin", icon: Shield, href: "/system-admin" },
   ];
 
   const isActive = (href: string) => location === href;

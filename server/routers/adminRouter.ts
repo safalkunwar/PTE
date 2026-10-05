@@ -5,6 +5,7 @@ import { questions } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
+import { generatedQuestionResponseSchema, parseGeneratedQuestion } from "../adminQuestionGeneration";
 
 export const adminRouter = router({
   // Upload questions from CSV
@@ -71,12 +72,15 @@ export const adminRouter = router({
     }))
     .mutation(async ({ input }) => {
       const generatedQuestions = [];
+      const failures: string[] = [];
 
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
 
       for (let i = 0; i < input.count; i++) {
-        const prompt = `Generate a ${input.difficulty} difficulty PTE Academic ${input.taskType.replace(/_/g, " ")} question for the ${input.section} section. 
+        const prompt = `Generate one ${input.difficulty} difficulty PTE Academic ${input.taskType.replace(/_/g, " ")} question for the ${input.section} section.
+
+        The answer must be grounded in the generated question. For objective tasks, correctAnswer may be a plain string or a JSON-encoded array/object stored as a string. For MCQs, include options with exactly one or more correct flags as appropriate. Do not invent media URLs.
         
         Return a JSON object with these fields:
         - title: Brief title for the question
@@ -86,7 +90,7 @@ export const adminRouter = router({
         - timeLimit: Time limit in seconds
         - preparationTime: Preparation time in seconds
         
-        Format the response as valid JSON only, no markdown.`;
+        Return only the requested JSON object. Do not include markdown or commentary.`;
 
         try {
           const response = await invokeLLM({
@@ -95,15 +99,19 @@ export const adminRouter = router({
                 role: "system",
                 content: "You are a PTE Academic test expert. Generate realistic and challenging practice questions."
               },
-              {
-                role: "user",
-                content: prompt
-              }
-            ]
+              { role: "user", content: prompt },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "pte_question",
+                strict: true,
+                schema: generatedQuestionResponseSchema,
+              },
+            },
           });
 
-          const content = response.choices[0]?.message?.content as string;
-          const questionData = JSON.parse(content);
+          const questionData = parseGeneratedQuestion(response.choices[0]?.message?.content);
 
           const insertData = {
             section: input.section,
@@ -112,20 +120,30 @@ export const adminRouter = router({
             title: questionData.title || `Generated ${input.taskType} ${i + 1}`,
             prompt: questionData.prompt,
             content: questionData.content,
-            correctAnswer: questionData.correctAnswer,
-            timeLimit: questionData.timeLimit || 30,
-            preparationTime: questionData.preparationTime || 0,
+            correctAnswer: questionData.correctAnswer || undefined,
+            modelAnswer: questionData.modelAnswer || undefined,
+            options: questionData.options.length ? questionData.options : undefined,
+            audioUrl: questionData.audioUrl || undefined,
+            imageUrl: questionData.imageUrl || undefined,
+            wordLimit: questionData.wordLimit || undefined,
+            timeLimit: questionData.timeLimit,
+            preparationTime: questionData.preparationTime,
             createdAt: new Date(),
           };
 
           await db.insert(questions).values(insertData);
           generatedQuestions.push(insertData);
         } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown generation error";
+          failures.push(`Question ${i + 1}: ${message}`);
           console.error(`Failed to generate question ${i + 1}:`, error);
         }
       }
 
-      return { success: true, count: generatedQuestions.length };
+      if (generatedQuestions.length === 0) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: `AI generation failed. ${failures[0] || "No valid question was returned."}` });
+      }
+      return { success: true, count: generatedQuestions.length, requested: input.count, failed: failures.length, failures };
     }),
 
   // Insert a question manually
@@ -162,6 +180,30 @@ export const adminRouter = router({
 
       const result = await db.insert(questions).values(insertData);
       return { success: true, result };
+    }),
+
+  // Update editable question content without changing its stable ID.
+  updateQuestion: adminProcedure
+    .input(z.object({
+      questionId: z.number().int().positive(),
+      title: z.string().min(1),
+      prompt: z.string().optional(),
+      content: z.string().optional(),
+      correctAnswer: z.string().optional(),
+      difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+      const { questionId, ...values } = input;
+      const result = await db.update(questions).set({
+        ...values,
+        prompt: values.prompt || undefined,
+        content: values.content || undefined,
+        correctAnswer: values.correctAnswer || undefined,
+      }).where(eq(questions.id, questionId));
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+      return { success: true };
     }),
 
   // Delete a question

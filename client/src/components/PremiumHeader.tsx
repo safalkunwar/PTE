@@ -127,13 +127,7 @@ export default function PremiumHeader() {
                   key={`${menuId}-${item.label}`}
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setActiveMenu(null);
-                    window.location.href = getPracticeTaskUrl({
-                      ...item,
-                      autoStart: Boolean(item.taskType && item.section),
-                    });
-                  }}
+                  onClick={() => { setActiveMenu(null); window.location.href = getPracticeTaskUrl(item); }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-muted transition-colors text-left"
                 >
                   <ItemIcon className="w-4 h-4 text-muted-foreground shrink-0" />

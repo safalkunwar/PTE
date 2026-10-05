@@ -1,8 +1,14 @@
 import "dotenv/config";
+import express from "express";
 import { createServer } from "http";
 import net from "net";
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { registerOAuthRoutes } from "./oauth";
+import { registerStorageProxy } from "./storageProxy";
+import { appRouter } from "../routers";
+import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { createApp } from "./app";
+import { handleSubscriptionRenewal } from "../scheduled/subscriptionRenewal";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -24,9 +30,52 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  const app = createApp();
+  const app = express();
   const server = createServer(app);
+  // Configure body parser with larger size limit for file uploads
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Serve uploaded task media through the project storage proxy
+  registerStorageProxy(app);
+  // OAuth callback under /api/oauth/callback
+  registerOAuthRoutes(app);
 
+  // Audio upload endpoint for speaking tasks (auth-gated, per-user namespaced)
+  app.post("/api/upload-audio", express.raw({ type: "audio/*", limit: "20mb" }), async (req, res) => {
+    try {
+      // Verify session before allowing upload
+      const { sdk } = await import("./sdk");
+      let user: import("./sdk").AuthenticatedUser | null = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user || user.isCron) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const { storagePut } = await import("../storage");
+      const nanoid = (await import("nanoid")).nanoid;
+      // Namespace by userId to prevent enumeration and cross-user collisions
+      const key = `audio/user-${user.id}/${nanoid()}.webm`;
+      const buffer = req.body as Buffer;
+      const { url } = await storagePut(key, buffer, "audio/webm");
+      res.json({ url, key });
+    } catch (err) {
+      console.error("Audio upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
+  // Platform-managed scheduled callbacks must be registered before tRPC/static fallthrough.
+  app.post("/api/scheduled/subscription-renewal", handleSubscriptionRenewal);
+
+  // tRPC API
+  app.use(
+    "/api/trpc",
+    createExpressMiddleware({
+      router: appRouter,
+      createContext,
+    })
+  );
+  // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
