@@ -5,13 +5,13 @@
   "outputDirectory": "dist/public",
   "framework": "vite",
   "functions": {
-    "api/index.ts": {
+    "api/entry.js": {
       "maxDuration": 60,
       "memory": 1024
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/api/(.*)", "destination": "/api/entry.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
