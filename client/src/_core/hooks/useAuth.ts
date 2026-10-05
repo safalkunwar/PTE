@@ -5,12 +5,20 @@ import { useCallback, useEffect, useMemo } from "react";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
-  redirectPath?: string;
+  redirectPath?: string | null;
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  const { redirectOnUnauthenticated = false, redirectPath = getLoginUrl() } =
+  const loginUrl = getLoginUrl();
+  const { redirectOnUnauthenticated = false, redirectPath = loginUrl } =
     options ?? {};
+
+  if (!redirectPath && redirectOnUnauthenticated) {
+    console.warn(
+      "useAuth: redirectOnUnauthenticated is true but login URL is not configured"
+    );
+  }
+
   const utils = trpc.useUtils();
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -62,12 +70,13 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
+    if (!redirectPath) return;
     if (meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (window.location.pathname === redirectPath) return;
 
-    window.location.href = redirectPath
+    window.location.href = redirectPath;
   }, [
     redirectOnUnauthenticated,
     redirectPath,
